@@ -1,5 +1,5 @@
 {
-  "name": "p7d-markdown-it-renderer-inlines",
+  "name": "@peaceroad/markdown-it-renderer-inline-text",
   "version": "0.1.0",
   "description": "A markdown-it plugin. Modify inline text of rendering HTML; Ruby, Star Comment.",
   "main": "index.js",
