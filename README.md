@@ -37,9 +37,9 @@ Notice: If this program has not `html: true`,  output same HTML.
 
 ```
 [Markdown]
-超電磁砲《レールガン》を変換できます。
+この環境では超電磁砲《レールガン》を変換できます。
 [HTML]
-<p><ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>を変換できます。</p>
+<p>この環境では<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>を変換できます。</p>
 
 [Markdown]
 ここには高出力<ruby>超電磁砲《レールガン》</ruby>が装備されています。
@@ -59,7 +59,7 @@ CSSは非営利団体<ruby>W3C《だぶるさんしー》</ruby>は策定して�
 
 ## Star Comment
 
-- Match: 
+- Match: `/(?:^|(?<![^\\]\\))★(.*?)(?<![^\\]\\)★/`
 - Convert: `<span class="star-comment">$1</span>`
 
 ### Use
