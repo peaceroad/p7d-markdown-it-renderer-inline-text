@@ -1,0 +1,15 @@
+{
+  "name": "p7d-markdown-it-renderer-inlines",
+  "version": "1.0.0",
+  "description": "A markdown-it plugin. Modify inline text of rendering HTML; Ruby, Star Comment.",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "node test/test.js"
+  },
+  "author": "peaceroad <peaceroad@gmail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "markdown-it": "^13.0.1"
+  }
+}

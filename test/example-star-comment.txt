@@ -1,0 +1,44 @@
+[Markdown]
+文章中の★スターコメント★は処理されます。
+[HTML]
+<p>文章中の<span class="star-comment">スターコメント</span>は処理されます。</p>
+
+[Markdown]
+文章中の★スターコメント\★は処理されます。
+[HTML]
+<p>文章中の★スターコメント\★は処理されます。</p>
+
+[Markdown]
+文章中の★スターコメント\★は★処理★されます。
+[HTML]
+<p>文章中の<span class="star-comment">スターコメント\★は</span>処理★されます。</p>
+
+[Markdown]
+★スターコメント\★は★処理★されます。
+[HTML]
+<p><span class="star-comment">スターコメント\★は</span>処理★されます。</p>
+
+[Markdown]
+文章中の★スターコメント★は★処理★されます。
+[HTML]
+<p>文章中の<span class="star-comment">スターコメント</span>は<span class="star-comment">処理</span>されます。</p>
+
+[Markdown]
+文章中の★スター<span>コメ</span>ント★は処理されます。
+[HTML]
+<p>文章中の<span class="star-comment">スター<span>コメ</span>ント</span>は処理されます。</p>
+
+[Markdown]
+文章中の★スター<span>コメ</span>ント★は★処理★されます。
+[HTML]
+<p>文章中の<span class="star-comment">スター<span>コメ</span>ント</span>は<span class="star-comment">処理</span>されます。</p>
+
+[Markdown]
+文章中の★スター<span>コメ</span>ント★は★<strong>処理</strong>されます★。
+[HTML]
+<p>文章中の<span class="star-comment">スター<span>コメ</span>ント</span>は<span class="star-comment"><strong>処理</strong>されます</span>。</p>
+
+[Markdown]
+文章中の★スター**コメ**ント★は処理されます。
+[HTML]
+<p>文章中の<span class="star-comment">スター<strong>コメ</strong>ント</span>は処理されます。</p>
