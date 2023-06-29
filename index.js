@@ -22,42 +22,83 @@ const convertRuby = (cont, tokens, idx, options) => {
       }
     }
     if (hasRubyTag) {
-      cont = cont.replace(rubyReg, rubyCont)
+      cont = cont.replace(ruby[0], rubyCont)
     } else {
-      cont = cont.replace(rubyReg, '<ruby>' + rubyCont + '</ruby>')
+      cont = cont.replace(ruby[0], '<ruby>' + rubyCont + '</ruby>')
     }
     i++
   }
   return cont
 }
 
-const convertStartComment = (cont, tokens, idx, options) => {
-  cont = cont.replace(/(?:^|(?<![^\\]\\))★(.*?)(?<![^\\]\\)★/g, '<span class="star-comment">$1</span>')
-  if (!cont.includes('★')) return cont
-  let n = idx + 1
-  while (n < tokens.length) {
-    if (!tokens[n].type !== 'text' && !tokens[n].content.includes('★')) {
-      n++
-      continue
+const convertStartComment = (cont, tokens, idx, opt) => {
+  //console.log('---\nbefore:' + cont)
+  const starReg = /(?:^|(?<![^\\]\\))★(?!<\/span star-comment>).*?(?<![^\\]\\)★/g
+  const contStarComments = [...cont.matchAll(starReg)]
+  const contNoStarComments = cont.split(starReg)
+  let hasOneStar = false
+  //console.log(contStarComments)
+  cont = ''
+  let n = 0
+  while (n < contNoStarComments.length) {
+    cont += contNoStarComments[n]
+    if (n === contNoStarComments.length - 1) {
+      if (/(?<![^\\]\\)★(?!<\/span star-comment>)[^★]*?$/.test(contNoStarComments[n])) {
+        hasOneStar = true
+      }
+      break
     }
-    cont = cont.replace('★', '<span class="star-comment">')
-    tokens[n].content = tokens[n].content.replace('★', '</span>')
-    break
+    if (opt.starCommentDelete) {
+      cont += ''
+    } else {
+      cont += '<span class="star-comment">' + contStarComments[n][0] + '</span>'
+    }
+    n++
   }
+
+  //console.log('hasOneStar: ' + hasOneStar)
+  if (hasOneStar) {
+    let i = idx + 1
+    while (i < tokens.length) {
+      if (!tokens[i].type !== 'text' && !/(?<![^\\]\\)★(?!<\/span star-comment>)/.test(tokens[i].content)) {
+        i++
+        continue
+      }
+      if (opt.starCommentDelete) {
+        cont = cont.replace(/(?<![^\\]\\)★(?!<\/span star-comment>).*$/, '')
+        tokens[i].content = tokens[i].content.replace(/.*?(?:^|(?<![^\\]\\))★(.*)$/, '$1')
+        let j = idx + 1
+        while (j < i) {
+          tokens[j].content = ''
+          tokens[j].hidden = true
+          j++
+        }
+      } else {
+        cont = cont.replace(/(?<![^\\]\\)★(?!<\/span star-comment>)/, '<span class="star-comment">★')
+        tokens[i].content = tokens[i].content.replace(/(?:^|(?<![^\\]\\))★/, '★</span star-comment>')
+      }
+      //console.log('tokens[i].content: ' + tokens[i].content)
+      break
+    }
+  }
+  cont = cont.replace(/<\/span star-comment>/g, '</span>')
+  cont = cont.replace(/(?<![\\])\\★/g, '★')
+  //console.log('after: ' + cont)
   return cont
 }
 
 const convertInlineText = (tokens, idx, options, env, slf, opt) => {
   let cont = tokens[idx].content
   if (opt.ruby)  cont = convertRuby(cont, tokens, idx, options)
-  if (opt.starComment) cont = convertStartComment(cont, tokens, idx, options)
+  if (opt.starComment) cont = convertStartComment(cont, tokens, idx, opt)
   return cont
 }
 
-const rendererInlineText　= (md, option) => {
+const rendererInlineText = (md, option) => {
   const opt = {
     ruby: false,
     starComment: false,
+    starCommentDelete: false,
   }
   if (option !== undefined) {
     for (let o in option) {

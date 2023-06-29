@@ -14,7 +14,7 @@ npm i @peaceroad/markdown-it-renderer-inline-text
 ## Ruby
 
 - Match: `/(<ruby>)?([\p{sc=Han}0-9A-Za-z.\-_]+)《([^》]+?)》(<\/ruby>)?/u`
-- Convert: `<ruby>$2<rp>《</rp><rt>$3</rt><rp>》</rp></ruby>`
+- Replace: `<ruby>$2<rp>《</rp><rt>$3</rt><rp>》</rp></ruby>`
 
 ### Use
 
@@ -59,8 +59,8 @@ CSSは非営利団体<ruby>W3C《だぶるさんしー》</ruby>は策定して�
 
 ## Star Comment
 
-- Match: `/(?:^|(?<![^\\]\\))★(.*?)(?<![^\\]\\)★/`
-- Convert: `<span class="star-comment">$1</span>`
+- Match: `/(?:^|(?<![^\\]\\))★.*?(?<![^\\]\\)★/`
+- Replace: `<span class="star-comment">$1</span>`
 
 ### Use
 
@@ -68,10 +68,26 @@ CSSは非営利団体<ruby>W3C《だぶるさんしー》</ruby>は策定して�
 import md from 'markdown-it'
 import mdRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
 
-md({html: true}).use(mdRendererInlineText, {starComment: true})
+md().use(mdRendererInlineText, {starComment: true})
 
 console.log(md.render('文章中の★スターコメント★は処理されます。');
-//<p>文章中の<span class="star-comment">スターコメント</span>は処理されます。</p>
+//<p>文章中の<span class="star-comment">★スターコメント★</span>は処理されます。</p>
+```
+
+Notice: If this program has `html: true`,  output same HTML.
+
+### Option
+
+Delete star comment.
+
+```js
+import md from 'markdown-it'
+import mdRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
+
+md().use(mdRendererInlineText, {starComment: true, starCommentDelete: true})
+
+console.log(md.render('文章中の★スターコメント★は処理されます。');
+//<p>文章中のは処理されます。</p>
 ```
 
 ### Example
@@ -80,7 +96,7 @@ console.log(md.render('文章中の★スターコメント★は処理されま
 [Markdown]
 文章中の★スターコメント★は処理されます。
 [HTML]
-<p>文章中の<span class="star-comment">スターコメント</span>は処理されます。</p>
+<p>文章中の<span class="star-comment">★スターコメント★</span>は処理されます。</p>
 
 [Markdown]
 文章中の★スターコメント\★は処理されます。
