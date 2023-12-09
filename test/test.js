@@ -1,7 +1,7 @@
 import assert from 'assert'
 import fs from 'fs'
 import path from 'path'
-import url from 'url';
+import url from 'url'
 
 import mdit from 'markdown-it'
 import mdRendererInlineText from '../index.js'
@@ -30,41 +30,45 @@ const check = (ms, example) => {
 
   let n = 1
   while (n < ms.length) {
-    //if (n !== 8) { n++; continue }
+    //if (n !== 7) { n++; continue }
     const m = ms[n].markdown
-    const h = md.render(m)
-    const hh = mdWithHtml.render(m)
-    const hscd = mdStarCommentDelete.render(m)
-    const hscdh = mdStarCommentDeleteWidthHtml.render(m)
 
+
+    console.log('Test [' + n + ', HTML: false] >>>')
+    const h = md.render(m)
     try {
-      console.log('Test [' + n + ', HTML: false] >>>')
       assert.strictEqual(h, ms[n].html)
     } catch(e) {
       console.log('Input: ' + ms[n].markdown + '\nConvert: ' + h + 'Correct: ' + ms[n].html)
     }
+
+    console.log('Test [' + n + ', HTML: true] >>>')
+    const hh = mdWithHtml.render(m)
     try {
-      console.log('Test [' + n + ', HTML: true] >>>')
       assert.strictEqual(hh, ms[n].html)
     } catch(e) {
       console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hh + 'Correct: ' + ms[n].html)
     }
 
-    if (example === 'starComment') {
-      console.log('Check starCommentDelete:')
+    if (example !== 'ruby') {
+      console.log('Test::starCommentDelete [' + n + ', HTML: false] >>>')
+      const hscd = mdStarCommentDelete.render(m)
       try {
-        console.log('Test [' + n + '\', HTML: false] >>>')
         assert.strictEqual(hscd, ms[n].htmlStarCommentDelete)
       } catch(e) {
         console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hscd + 'Correct: ' + ms[n].htmlStarCommentDelete)
       }
+
+      console.log('Test::starCommentDelete [' + n + ', HTML: true] >>>')
+      const hscdh = mdStarCommentDeleteWidthHtml.render(m)
       try {
-        console.log('Test [' + n + '\', HTML: true] >>>')
         assert.strictEqual(hscdh, ms[n].htmlStarCommentDelete)
       } catch(e) {
         console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hscdh + 'Correct: ' + ms[n].htmlStarCommentDelete)
       }
+
     }
+
     n++
   }
 }
@@ -72,6 +76,7 @@ const check = (ms, example) => {
 const examples = {
   ruby: __dirname + '/example-ruby.txt',
   starComment: __dirname + '/example-star-comment.txt',
+  //complex: __dirname + '/example-complex.txt',
 }
 
 for (let example in examples) {
@@ -97,6 +102,6 @@ for (let example in examples) {
     }
     n++
   }
-  console.log(example + " =======================")
+  console.log('Check: ' + example + " =======================")
   check(ms, example)
 }

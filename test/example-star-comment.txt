@@ -67,3 +67,10 @@
 <p>文章中の<span class="star-comment">★スター<strong>コメ</strong>ント★</span>は処理されます。</p>
 [HTML:delete]
 <p>文章中のは処理されます。</p>
+
+[Markdown]
+★この★環境では超電磁砲を変換できます★。<span>aa</span>★
+[HTML]
+<p><span class="star-comment">★この★</span>環境では超電磁砲を変換できます<span class="star-comment">★。<span>aa</span>★</span></p>
+[HTML:delete]
+<p>環境では超電磁砲を変換できます</p>
