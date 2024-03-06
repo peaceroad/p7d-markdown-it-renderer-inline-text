@@ -13,14 +13,14 @@ npm i @peaceroad/markdown-it-renderer-inline-text
 
 ## Ruby
 
-- Match: `/(<ruby>)?([\p{sc=Han}0-9A-Za-z.\-_]+)《([^》]+?)》(<\/ruby>)?/u`
+- Match: `(<ruby>)?([\\p{sc=Han}0-9A-Za-z.\\-_]+)《([^》]+?)》(<\/ruby>)?'/u`
 - Replace: `<ruby>$2<rp>《</rp><rt>$3</rt><rp>》</rp></ruby>`
 
 ### Use
 
 ```js
-import md from 'markdown-it'
-import mdRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
+const md = require('markdown-it')
+const mdRendererInlineText = require('@peaceroad/markdown-it-renderer-inline-text')
 
 md({html: true}).use(mdRendererInlineText, {ruby: true})
 
@@ -31,7 +31,7 @@ console.log(md.render('ここには高出力<ruby>超電磁砲《レールガン
 //<p>ここには高出力<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>が装備されています。</p>
 ```
 
-Notice: If this program has not `html: true`,  output same HTML.
+Notice. If this program has not `html: true`,  output same HTML.
 
 ### Example
 
@@ -59,36 +59,30 @@ CSSは非営利団体<ruby>W3C《だぶるさんしー》</ruby>は策定して�
 
 ## Star Comment
 
-- Match: `/(?:^|(?<![^\\]\\))★.*?(?<![^\\]\\)★/`
+The following string is considered a comment.
+
+- There is a ★ at the beginning of the paragraph line.
+- Strings surrounded by ★
 - Replace: `<span class="star-comment">$1</span>`
 
 ### Use
 
 ```js
-import md from 'markdown-it'
-import mdRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
+const md = require('markdown-it')
+const mdRendererInlineText = require('@peaceroad/markdown-it-renderer-inline-text')
 
-md().use(mdRendererInlineText, {starComment: true})
+md().use(mdRendererInlineText, {
+  starComment: true,
+  starCommentLine: true,
+})
 
 console.log(md.render('文章中の★スターコメント★は処理されます。');
 //<p>文章中の<span class="star-comment">★スターコメント★</span>は処理されます。</p>
+console.log(md.render('★文頭にスターがあるとその段落をコメント段落として処理します。');
+//<p>文章中の<span class="star-comment">★文頭にスターがあるとその段落をコメント段落として処理します。</span></p>
 ```
 
-Notice: If this program has `html: true`,  output same HTML.
-
-### Option
-
-Delete star comment.
-
-```js
-import md from 'markdown-it'
-import mdRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
-
-md().use(mdRendererInlineText, {starComment: true, starCommentDelete: true})
-
-console.log(md.render('文章中の★スターコメント★は処理されます。');
-//<p>文章中のは処理されます。</p>
-```
+Notice. If this program has `html: true`,  output basically the same HTML.
 
 ### Example
 
@@ -99,7 +93,47 @@ console.log(md.render('文章中の★スターコメント★は処理されま
 <p>文章中の<span class="star-comment">★スターコメント★</span>は処理されます。</p>
 
 [Markdown]
-文章中の★スターコメント\★は処理されます。
+★この段落はコメントとみなします。
 [HTML]
-<p>文章中の★スターコメント★は処理されます。</p>
+<p><span class="star-comment">★この段落はコメントとみなします。</span></p>
+```
+
+Notice. By using `\` before ★, it will be converted without making it a comment. However, if two or more `\` characters are used in succession, they will be converted differently from the Markdown specifications (for now). Details are below.
+
+```
+[Markdown]
+文章中★のスターコメント\★は処理されます。
+[HTML]
+<p>文章中★のスターコメント★は処理されます。</p>
+
+[Markdown]
+文章中★のスターコメント\\★は処理されます。
+[HTML]
+<p>文章中★のスターコメント★は処理されます。</p>
+
+[Markdown]
+文章中★のスターコメント\\\★は処理されます。
+[HTML]
+<p>文章中<span class="star-comment">★のスターコメント\\★</span>は処理されます。</p>
+```
+
+### Option
+
+Delete star comment.
+
+```js
+const md = require('markdown-it')
+const mdRendererInlineText = require('@peaceroad/markdown-it-renderer-inline-text')
+
+md().use(mdRendererInlineText, {
+  starComment: true,
+  starCommentLine: true,
+  starCommentDelete: true,
+})
+
+console.log(md.render('文章中の★スターコメント★は処理されます。')
+//<p>文章中のは処理されます。</p>
+
+console.log(md.render('★この段落はコメントとみなします。')
+//<p><span class="star-comment-line"></span></p>
 ```

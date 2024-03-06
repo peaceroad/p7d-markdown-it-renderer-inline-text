@@ -27,11 +27,11 @@
 <p>文章中の処理★されます。</p>
 
 [Markdown]
-★スターコメント\★は★処理★されます。
+この★スターコメント\★は★処理★されます。
 [HTML]
-<p><span class="star-comment">★スターコメント★は★</span>処理★されます。</p>
+<p>この<span class="star-comment">★スターコメント★は★</span>処理★されます。</p>
 [HTML:delete]
-<p>処理★されます。</p>
+<p>この処理★されます。</p>
 
 [Markdown]
 文章中の★スターコメント★は★処理★されます。
@@ -69,8 +69,60 @@
 <p>文章中のは処理されます。</p>
 
 [Markdown]
-★この★環境では超電磁砲を変換できます★。<span>aa</span>★
+ここでは、★この★環境では超電磁砲を変換できます★。<span>aa</span>★
 [HTML]
-<p><span class="star-comment">★この★</span>環境では超電磁砲を変換できます<span class="star-comment">★。<span>aa</span>★</span></p>
+<p>ここでは、<span class="star-comment">★この★</span>環境では超電磁砲を変換できます<span class="star-comment">★。<span>aa</span>★</span></p>
 [HTML:delete]
-<p>環境では超電磁砲を変換できます</p>
+<p>ここでは、環境では超電磁砲を変換できます</p>
+
+[Markdown]
+★文章中のスターコメント★は処理されます。
+[HTML]
+<p><span class="star-comment">★文章中のスターコメント★</span>は処理されます。</p>
+[HTML:delete]
+<p>は処理されます。</p>
+
+[Markdown]
+★文章中のスターコメント★は処理★されます。
+[HTML]
+<p><span class="star-comment">★文章中のスターコメント★</span>は処理★されます。</p>
+[HTML:delete]
+<p>は処理★されます。</p>
+
+[Markdown]
+\★文章中のスターコメント★は処理★されます。
+[HTML]
+<p>★文章中のスターコメント<span class="star-comment">★は処理★</span>されます。</p>
+[HTML:delete]
+<p>★文章中のスターコメントされます。</p>
+
+[Markdown]
+文章中★の<span>スターコメント</span>★は処理★されます。
+[HTML]
+<p>文章中<span class="star-comment">★の<span>スターコメント</span>★</span>は処理★されます。</p>
+[HTML:delete]
+<p>文章中は処理★されます。</p>
+
+[Markdown]
+文章中★の<span>スターコメント</span>\★は処理されます。
+[HTML]
+<p>文章中★の<span>スターコメント</span>★は処理されます。</p>
+[HTML:delete]
+<p>文章中★の<span>スターコメント</span>★は処理されます。</p>
+
+
+[Markdown]
+文章中★の<span>スターコメント</span>\\★は処理されます。
+[HTML]
+<p>文章中★の<span>スターコメント</span>★は処理されます。</p>
+[HTML:delete]
+<p>文章中★の<span>スターコメント</span>★は処理されます。</p>
+
+
+[Markdown]
+文章中★の<span>スターコメント</span>\\\★は処理されます。
+[HTML]
+<p>文章中<span class="star-comment">★の<span>スターコメント</span>\\★</span>は処理されます。</p>
+[HTML:delete]
+<p>文章中は処理されます。</p>
+

@@ -1,12 +1,8 @@
-import assert from 'assert'
-import fs from 'fs'
-import path from 'path'
-import url from 'url'
+const assert = require('assert')
+const fs = require('fs')
 
-import mdit from 'markdown-it'
-import mdRendererInlineText from '../index.js'
-
-const __dirname = path.dirname(url.fileURLToPath(import.meta.url)).replace(/\\/g, '/')
+const mdit = require('markdown-it')
+const mdRendererInlineText = require('../index.js')
 
 const check = (ms, example) => {
   const md = mdit().use(mdRendererInlineText, {
@@ -28,29 +24,50 @@ const check = (ms, example) => {
     starCommentDelete: true,
   })
 
+  const mdStarCommentLine = mdit().use(mdRendererInlineText, {
+    starComment: true,
+    starCommentLine: true,
+  })
+  const mdStarCommentLineWithHtml = mdit({html: true}).use(mdRendererInlineText, {
+    starComment: true,
+    starCommentLine: true,
+  })
+  const mdStarCommentDeleteLine = mdit().use(mdRendererInlineText, {
+    starComment: true,
+    starCommentDelete: true,
+    starCommentLine: true,
+  })
+  const mdStarCommentDeleteLineWithHtml = mdit({html: true}).use(mdRendererInlineText, {
+    starComment: true,
+    starCommentDelete: true,
+    starCommentLine: true,
+  })
+
+
   let n = 1
   while (n < ms.length) {
-    //if (n !== 7) { n++; continue }
+    //if (n !== 2) { n++; continue }
     const m = ms[n].markdown
 
+    if (example === 'ruby' || example === 'starComment') {
+      console.log('Test [' + n + ', HTML: false] >>>')
+      const h = md.render(m)
+      try {
+        assert.strictEqual(h, ms[n].html)
+      } catch(e) {
+        console.log('Input: ' + ms[n].markdown + '\nConvert: ' + h + 'Correct: ' + ms[n].html)
+      }
 
-    console.log('Test [' + n + ', HTML: false] >>>')
-    const h = md.render(m)
-    try {
-      assert.strictEqual(h, ms[n].html)
-    } catch(e) {
-      console.log('Input: ' + ms[n].markdown + '\nConvert: ' + h + 'Correct: ' + ms[n].html)
+      console.log('Test [' + n + ', HTML: true] >>>')
+      const hh = mdWithHtml.render(m)
+      try {
+        assert.strictEqual(hh, ms[n].html)
+      } catch(e) {
+        console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hh + 'Correct: ' + ms[n].html)
+      }
     }
 
-    console.log('Test [' + n + ', HTML: true] >>>')
-    const hh = mdWithHtml.render(m)
-    try {
-      assert.strictEqual(hh, ms[n].html)
-    } catch(e) {
-      console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hh + 'Correct: ' + ms[n].html)
-    }
-
-    if (example !== 'ruby') {
+    if (example === 'starComment') {
       console.log('Test::starCommentDelete [' + n + ', HTML: false] >>>')
       const hscd = mdStarCommentDelete.render(m)
       try {
@@ -66,6 +83,38 @@ const check = (ms, example) => {
       } catch(e) {
         console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hscdh + 'Correct: ' + ms[n].htmlStarCommentDelete)
       }
+    }
+
+    if (example === 'starCommentLine') {
+      console.log('Test::starCommentLine [' + n + ', HTML: false] >>>')
+      const hscl = mdStarCommentLine.render(m)
+      try {
+        assert.strictEqual(hscl, ms[n].html)
+      } catch(e) {
+        console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hscl + 'Correct: ' + ms[n].html)
+      }
+      console.log('Test::starCommentLine [' + n + ', HTML: true] >>>')
+      const hscldh = mdStarCommentLineWithHtml.render(m)
+      try {
+        assert.strictEqual(hscldh, ms[n].html)
+      } catch(e) {
+        console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hscldh + 'Correct: ' + ms[n].html)
+      }
+      console.log('Test::starCommentDeleteLine [' + n + ', HTML: false] >>>')
+      const hscdl = mdStarCommentDeleteLine.render(m)
+      try {
+        assert.strictEqual(hscdl, ms[n].htmlStarCommentDelete)
+      } catch(e) {
+        console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hscdl + 'Correct: ' + ms[n].htmlStarCommentDelete)
+      }
+      console.log('Test::starCommentDeleteLine [' + n + ', HTML: true] >>>')
+      const hscdldh = mdStarCommentDeleteLineWithHtml.render(m)
+      try {
+        assert.strictEqual(hscdldh, ms[n].htmlStarCommentDelete)
+      } catch(e) {
+        console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hscdldh + 'Correct: ' + ms[n].htmlStarCommentDelete)
+      }
+
 
     }
 
@@ -76,6 +125,7 @@ const check = (ms, example) => {
 const examples = {
   ruby: __dirname + '/example-ruby.txt',
   starComment: __dirname + '/example-star-comment.txt',
+  starCommentLine: __dirname + '/example-star-comment-line.txt',
   //complex: __dirname + '/example-complex.txt',
 }
 
