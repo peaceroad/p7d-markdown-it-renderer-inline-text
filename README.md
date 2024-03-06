@@ -13,7 +13,7 @@ npm i @peaceroad/markdown-it-renderer-inline-text
 
 ## Ruby
 
-- Match: `(<ruby>)?([\\p{sc=Han}0-9A-Za-z.\\-_]+)《([^》]+?)》(<\/ruby>)?'/u`
+- Match: `(<ruby>)?([\p{sc=Han}0-9A-Za-z.\-_]+)《([^》]+?)》(<\/ruby>)?/u`
 - Replace: `<ruby>$2<rp>《</rp><rt>$3</rt><rp>》</rp></ruby>`
 
 ### Use
