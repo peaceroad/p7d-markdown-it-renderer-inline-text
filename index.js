@@ -31,9 +31,9 @@ const convertRuby = (cont, tokens, idx, options) => {
   return cont
 }
 
-const convertStartComment = (cont, tokens, idx, options, opt) => {
+const convertStarComment = (cont, tokens, idx, options, opt) => {
  //console.log('---\nidx: ' + idx + ', before cont:' + cont) 
-  //console.log('tokens[' + idx + ']: ' + JSON.stringify(tokens[idx]))
+ //console.log('tokens[' + idx + ']: ' + JSON.stringify(tokens[idx]))
 
   if (opt.starCommentLine) {
     let hasStarCommentLine = false
@@ -172,10 +172,13 @@ const hasNextStar = (tokens, idx, n, opt) => {
 }
 
 const convertInlineText = (tokens, idx, options, opt) => {
+  //md.utils.escapeHtml()
   let cont = tokens[idx].content
   if (opt.ruby)  cont = convertRuby(cont, tokens, idx, options)
   //console.log('idx : ' + idx + ', cont: ' + cont + ', tokens.length: ' + tokens.length)
-  if (opt.starComment) cont = convertStartComment(cont, tokens, idx, options, opt)
+  if (opt.starComment) cont = convertStarComment(cont, tokens, idx, 
+  options, opt)
+  cont = cont.replace(/&/g, '&amp;').replace(/<(?!\/?[\w\s="/.':;#-\/\?]+>)/g, '&lt;').replace(/(?<!<\/?[\w\s="/.':;#-\/\?]+)>(?![^<]*>)/g, '&gt;')
   return cont
 }
 
@@ -192,7 +195,7 @@ function rendererInlineText (md, option) {
     }
   }
   md.renderer.rules['text'] = (tokens, idx, options, env, slf) => {
-    return convertInlineText(tokens, idx, options, opt)
+    return convertInlineText(tokens, idx, options, opt, md)
   }
 }
 

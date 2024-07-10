@@ -126,3 +126,18 @@
 [HTML:delete]
 <p>文章中は処理されます。</p>
 
+
+[Markdown]
+文章中の`★`スターコメント`★`は処理されます。
+[HTML]
+<p>文章中の<code>★</code>スターコメント<code>★</code>は処理されます。</p>
+[HTML:delete]
+<p>文章中の<code>★</code>スターコメント<code>★</code>は処理されます。</p>
+
+
+[Markdown]
+aaa><aaa
+[HTML]
+<p>aaa&gt;&lt;aaa</p>
+[HTML:delete]
+<p>aaa&gt;&lt;aaa</p>

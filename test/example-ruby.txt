@@ -53,3 +53,10 @@ CSSは非営利団体<ruby>W3C《だぶるさんしー》</ruby>は策定して�
 [HTML]
 <p><ruby>日本語<rp>《</rp><rt>にほんご</rt><rp>》</rp></ruby>と<ruby>日本語<rp>《</rp><rt>ニホンゴ</rt><rp>》</rp></ruby></p>
 
+
+[Markdown]
+aaa><aaa\&lt;
+[HTML]
+<p>aaa&gt;&lt;aaa&amp;lt;</p>
+[HTML:delete]
+<p>aaa&gt;&lt;aaa&amp;lt;</p>
