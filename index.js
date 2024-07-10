@@ -176,8 +176,8 @@ const convertInlineText = (tokens, idx, options, opt) => {
   let cont = tokens[idx].content
   if (opt.ruby)  cont = convertRuby(cont, tokens, idx, options)
   //console.log('idx : ' + idx + ', cont: ' + cont + ', tokens.length: ' + tokens.length)
-  if (opt.starComment) cont = convertStarComment(cont, tokens, idx, 
-  options, opt)
+  if (opt.starComment) cont = convertStarComment(cont, tokens, idx, options, opt)
+  //hotfix
   cont = cont.replace(/&/g, '&amp;').replace(/<(?!\/?[\w\s="/.':;#-\/\?]+>)/g, '&lt;').replace(/(?<!<\/?[\w\s="/.':;#-\/\?]+)>(?![^<]*>)/g, '&gt;')
   return cont
 }
@@ -195,7 +195,7 @@ function rendererInlineText (md, option) {
     }
   }
   md.renderer.rules['text'] = (tokens, idx, options, env, slf) => {
-    return convertInlineText(tokens, idx, options, opt, md)
+    return convertInlineText(tokens, idx, options, opt)
   }
 }
 
