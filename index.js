@@ -178,7 +178,7 @@ const convertInlineText = (tokens, idx, options, opt) => {
   //console.log('idx : ' + idx + ', cont: ' + cont + ', tokens.length: ' + tokens.length)
   if (opt.starComment) cont = convertStarComment(cont, tokens, idx, options, opt)
   //hotfix
-  cont = cont.replace(/&/g, '&amp;').replace(/<(?!\/?[\w\s="/.':;#-\/\?]+>)/g, '&lt;').replace(/(?<!<\/?[\w\s="/.':;#-\/\?]+)>(?![^<]*>)/g, '&gt;')
+  cont = cont.replace(/&/g, '&amp;').replace(/<(?!\/?[\w\s="/.':;#-\/\?]+>)/g, '&lt;').replace(/(?<!<\/?[\w\s="/.':;#-\/\?]+)>(?![^<]*>)/g, '&gt;').replace(/<(\/?)>/g, '&lt;$1&gt;').replace(/<([^>]+?\/[^>]+?)>/g, '&lt;$1&gt;')
   return cont
 }
 
