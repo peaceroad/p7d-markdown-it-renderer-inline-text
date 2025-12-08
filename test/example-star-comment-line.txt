@@ -1,44 +1,57 @@
 [Markdown]
-★文頭のスターコメントはその行がコメントと処理されます。
+一行目
+★コメント行
+三行目
 [HTML]
-<p><span class="star-comment">★文頭のスターコメントはその行がコメントと処理されます。</span></p>
+<p>一行目
+<span class="star-comment">★コメント行</span>
+三行目</p>
 [HTML:delete]
-<p><span class="star-comment-line"></span></p>
-
-[Markdown]
-★文頭のスターコメントは<span>その行</span>がコメントと処理されます。
-[HTML]
-<p><span class="star-comment">★文頭のスターコメントは<span>その行</span>がコメントと処理されます。</span></p>
-[HTML:delete]
-<p><span class="star-comment-line"></span></p>
-
-[Markdown]
-★文頭のスターコメントは<span>その行</span>がコメントと処理されます。
-[HTML]
-<p><span class="star-comment">★文頭のスターコメントは<span>その行</span>がコメントと処理されます。</span></p>
-[HTML:delete]
-<p><span class="star-comment-line"></span></p>
-
-[Markdown]
-★文頭のスターコメントは<span>その行</span>がコメント★と処理されます。
-[HTML]
-<p><span class="star-comment">★文頭のスターコメントは<span>その行</span>がコメント★と処理されます。</span></p>
-[HTML:delete]
-<p><span class="star-comment-line"></span></p>
-
-[Markdown]
-★文頭の★スターコメントは<span>その行</span>がコメント★と処理されます。
-[HTML]
-<p><span class="star-comment">★文頭の★スターコメントは<span>その行</span>がコメント★と処理されます。</span></p>
-[HTML:delete]
-<p><span class="star-comment-line"></span></p>
+<p>一行目
+三行目</p>
 
 
 [Markdown]
-\★文頭の★スターコメントは<span>その行</span>がコメント★と処理されます。
+★先頭コメント
+本文の続き
 [HTML]
-<p>★文頭の<span class="star-comment">★スターコメントは<span>その行</span>がコメント★</span>と処理されます。</p>
+<p><span class="star-comment">★先頭コメント</span>
+本文の続き</p>
 [HTML:delete]
-<p>★文頭のと処理されます。</p>
+<p>本文の続き</p>
 
+
+[Markdown]
+本文が続きます
+★末尾コメント
+[HTML]
+<p>本文が続きます
+<span class="star-comment">★末尾コメント</span></p>
+[HTML:delete]
+<p>本文が続きます</p>
+
+
+[Markdown]
+★一つ目のコメント
+★二つ目のコメント
+通常行
+[HTML]
+<p><span class="star-comment">★一つ目のコメント</span>
+<span class="star-comment">★二つ目のコメント</span>
+通常行</p>
+[HTML:delete]
+<p>通常行</p>
+
+
+[Markdown]
+	★コードブロック
+通常行
+[HTML]
+<pre><code>★コードブロック
+</code></pre>
+<p>通常行</p>
+[HTML:delete]
+<pre><code>★コードブロック
+</code></pre>
+<p>通常行</p>
 

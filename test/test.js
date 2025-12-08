@@ -1,8 +1,12 @@
-const assert = require('assert')
-const fs = require('fs')
+import assert from 'assert'
+import fs from 'fs'
+import path from 'path'
+import mdit from 'markdown-it'
+import mdRendererInlineText from '../index.js'
+import { fileURLToPath } from 'url'
 
-const mdit = require('markdown-it')
-const mdRendererInlineText = require('../index.js')
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 const check = (ms, example) => {
   const md = mdit().use(mdRendererInlineText, {
@@ -44,93 +48,85 @@ const check = (ms, example) => {
   })
 
 
+  let errors = []
   let n = 1
   while (n < ms.length) {
     //if (n !== 2) { n++; continue }
     const m = ms[n].markdown
-
     if (example === 'ruby' || example === 'starComment') {
-      console.log('Test [' + n + ', HTML: false] >>>')
       const h = md.render(m)
       try {
         assert.strictEqual(h, ms[n].html)
       } catch(e) {
-        console.log('Input: ' + ms[n].markdown + '\nConvert: ' + h + 'Correct: ' + ms[n].html)
+        errors.push('[FAIL] ' + example + ' #' + n + ' [HTML: false]\nInput: ' + ms[n].markdown + '\nConvert: ' + h + '\nCorrect: ' + ms[n].html)
       }
 
-      console.log('Test [' + n + ', HTML: true] >>>')
       const hh = mdWithHtml.render(m)
       try {
         assert.strictEqual(hh, ms[n].html)
       } catch(e) {
-        console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hh + 'Correct: ' + ms[n].html)
+        errors.push('[FAIL] ' + example + ' #' + n + ' [HTML: true]\nInput: ' + ms[n].markdown + '\nConvert: ' + hh + '\nCorrect: ' + ms[n].html)
       }
     }
 
     if (example === 'starComment') {
-      console.log('Test::starCommentDelete [' + n + ', HTML: false] >>>')
       const hscd = mdStarCommentDelete.render(m)
       try {
         assert.strictEqual(hscd, ms[n].htmlStarCommentDelete)
       } catch(e) {
-        console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hscd + 'Correct: ' + ms[n].htmlStarCommentDelete)
+        errors.push('[FAIL] ' + example + ' #' + n + ' [starCommentDelete HTML: false]\nInput: ' + ms[n].markdown + '\nConvert: ' + hscd + '\nCorrect: ' + ms[n].htmlStarCommentDelete)
       }
 
-      console.log('Test::starCommentDelete [' + n + ', HTML: true] >>>')
       const hscdh = mdStarCommentDeleteWidthHtml.render(m)
       try {
         assert.strictEqual(hscdh, ms[n].htmlStarCommentDelete)
       } catch(e) {
-        console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hscdh + 'Correct: ' + ms[n].htmlStarCommentDelete)
+        errors.push('[FAIL] ' + example + ' #' + n + ' [starCommentDelete HTML: true]\nInput: ' + ms[n].markdown + '\nConvert: ' + hscdh + '\nCorrect: ' + ms[n].htmlStarCommentDelete)
       }
     }
 
     if (example === 'starCommentLine') {
-      console.log('Test::starCommentLine [' + n + ', HTML: false] >>>')
       const hscl = mdStarCommentLine.render(m)
       try {
         assert.strictEqual(hscl, ms[n].html)
       } catch(e) {
-        console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hscl + 'Correct: ' + ms[n].html)
+        errors.push('[FAIL] ' + example + ' #' + n + ' [starCommentLine HTML: false]\nInput: ' + ms[n].markdown + '\nConvert: ' + hscl + '\nCorrect: ' + ms[n].html)
       }
-      console.log('Test::starCommentLine [' + n + ', HTML: true] >>>')
       const hscldh = mdStarCommentLineWithHtml.render(m)
       try {
         assert.strictEqual(hscldh, ms[n].html)
       } catch(e) {
-        console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hscldh + 'Correct: ' + ms[n].html)
+        errors.push('[FAIL] ' + example + ' #' + n + ' [starCommentLine HTML: true]\nInput: ' + ms[n].markdown + '\nConvert: ' + hscldh + '\nCorrect: ' + ms[n].html)
       }
-      console.log('Test::starCommentDeleteLine [' + n + ', HTML: false] >>>')
       const hscdl = mdStarCommentDeleteLine.render(m)
       try {
         assert.strictEqual(hscdl, ms[n].htmlStarCommentDelete)
       } catch(e) {
-        console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hscdl + 'Correct: ' + ms[n].htmlStarCommentDelete)
+        errors.push('[FAIL] ' + example + ' #' + n + ' [starCommentDeleteLine HTML: false]\nInput: ' + ms[n].markdown + '\nConvert: ' + hscdl + '\nCorrect: ' + ms[n].htmlStarCommentDelete)
       }
-      console.log('Test::starCommentDeleteLine [' + n + ', HTML: true] >>>')
       const hscdldh = mdStarCommentDeleteLineWithHtml.render(m)
       try {
         assert.strictEqual(hscdldh, ms[n].htmlStarCommentDelete)
       } catch(e) {
-        console.log('Input: ' + ms[n].markdown + '\nConvert: ' + hscdldh + 'Correct: ' + ms[n].htmlStarCommentDelete)
+        errors.push('[FAIL] ' + example + ' #' + n + ' [starCommentDeleteLine HTML: true]\nInput: ' + ms[n].markdown + '\nConvert: ' + hscdldh + '\nCorrect: ' + ms[n].htmlStarCommentDelete)
       }
-
-
     }
 
     n++
   }
-}
+  return errors
+  }
 
-const examples = {
-  ruby: __dirname + '/example-ruby.txt',
-  starComment: __dirname + '/example-star-comment.txt',
-  starCommentLine: __dirname + '/example-star-comment-line.txt',
-  //complex: __dirname + '/example-complex.txt',
-}
-
-for (let example in examples) {
-  const exampleCont = fs.readFileSync(examples[example], 'utf-8').trim()
+// (Aggregated run is performed below)
+let totalErrors = 0
+// Find all .txt fixtures in this test directory
+const files = fs.readdirSync(__dirname)
+const txtFiles = files.filter(f => f.endsWith('.txt'))
+for (const file of txtFiles) {
+  console.log ('Tests files: ' + file)
+  const example = path.basename(file, '.txt')
+  const examplePath = path.join(__dirname, file)
+  const exampleCont = fs.readFileSync(examplePath, 'utf-8').trim()
   let ms = [];
   let ms0 = exampleCont.split(/\n*\[Markdown\]\n/)
   let n = 1
@@ -152,6 +148,17 @@ for (let example in examples) {
     }
     n++
   }
-  console.log('Check: ' + example + " =======================")
-  check(ms, example)
+  const errors = check(ms, example)
+  if (errors && errors.length) {
+    console.log('Check: ' + example + " =======================")
+    errors.forEach((e) => console.log(e))
+  }
+  totalErrors += errors.length
+}
+
+if (totalErrors === 0) {
+  console.log('All tests passed.')
+} else {
+  console.log(totalErrors + ' tests failed.')
+  process.exit(1)
 }
