@@ -24,7 +24,6 @@ const HTML_LT_NONTAG_REGEXP = /<(?!\/?[\w\s="/.':;#-\/\?]+>)/g
 const HTML_GT_NONTAG_REGEXP = /(?<!<\/?[\w\s="/.':;#-\/\?]+)>(?![^<]*>)/g
 const HTML_EMPTY_TAG_REGEXP = /<(\/?)>/g
 const HTML_SLASHED_TAG_REGEXP = /<([^>]+?\/[^>]+?)>/g
-const identity = (value) => value
 
 const detectRubyWrapper = (tokens, idx) => {
   if (!tokens[idx - 1] || !tokens[idx + 1]) return false
@@ -418,13 +417,8 @@ const applyStrayStar = (segment, tokens, idx, opt) => {
     : starBeforeCont + '<span class="star-comment">★' + starAfterCont
 }
 
-const convertRuby = (cont, tokens, idx, options, cachedWrapper) => {
+const convertRuby = (cont, hasRubyWrapper) => {
   if (!RUBY_TRIGGER_REGEXP.test(cont)) return cont
-
-  let hasRubyTag = cachedWrapper
-  if (hasRubyTag === undefined) {
-    hasRubyTag = options.html ? detectRubyWrapper(tokens, idx) : false
-  }
 
   RUBY_REGEXP.lastIndex = 0
   let replaced = false
@@ -433,33 +427,55 @@ const convertRuby = (cont, tokens, idx, options, cachedWrapper) => {
     if ((openTag && !closeTag) || (closeTag && !openTag)) return match
     replaced = true
     const rubyCont = base + '<rp>《</rp><rt>' + reading + '</rt><rp>》</rp>'
-    return hasRubyTag ? rubyCont : '<ruby>' + rubyCont + '</ruby>'
+    return hasRubyWrapper ? rubyCont : '<ruby>' + rubyCont + '</ruby>'
   })
 
   return replaced ? converted : cont
 }
 
-const convertStarComment = (cont, tokens, idx, options, opt, rubyConvert) => {
-  const convertSegment = rubyConvert || identity
+const applyRubySegment = (value, rubyEnabled, hasRubyWrapper) => {
+  if (!rubyEnabled) return value
+  return convertRuby(value, hasRubyWrapper)
+}
+
+const hasStarCommentLineCandidate = (tokens) => {
+  if (!tokens || !tokens.length || tokens.__starCommentLineGlobalProcessed) return false
+  if (tokens.__starCommentLineCandidate !== undefined) {
+    return tokens.__starCommentLineCandidate
+  }
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+    if (token && typeof token.content === 'string' && token.content.indexOf(STAR_CHAR) !== -1) {
+      tokens.__starCommentLineCandidate = true
+      return true
+    }
+  }
+  tokens.__starCommentLineCandidate = false
+  return false
+}
+
+const convertStarComment = (cont, tokens, idx, htmlEnabled, opt, rubyEnabled, rubyWrapperCache) => {
   const isParagraphStar = opt.starCommentParagraph && isStarCommentParagraph(tokens)
   const currentToken = tokens[idx]
-  const insideInlineHtml = options && options.html && !opt.insideHtml
+  const insideInlineHtml = htmlEnabled && !opt.insideHtml
     && currentToken
     && currentToken.meta
     && currentToken.meta.__insideHtmlInline
 
   if (insideInlineHtml && !isParagraphStar) {
-    return rubyConvert ? rubyConvert(cont) : cont
+    return applyRubySegment(cont, rubyEnabled, rubyWrapperCache)
   }
 
   if (opt.starCommentLine) {
-    markStarCommentLineGlobal(tokens, opt)
+    if (!tokens.__starCommentLineGlobalProcessed && hasStarCommentLineCandidate(tokens)) {
+      markStarCommentLineGlobal(tokens, opt)
+    }
     const meta = currentToken && currentToken.meta
     if (meta && meta.__starLineGlobal) {
       if (opt.starCommentDelete) {
         return ''
       }
-      let processed = convertSegment(cont)
+      let processed = applyRubySegment(cont, rubyEnabled, rubyWrapperCache)
       if (meta.__starLineGlobalStart) {
         processed = '<span class="star-comment">' + processed
       }
@@ -479,7 +495,7 @@ const convertStarComment = (cont, tokens, idx, options, opt, rubyConvert) => {
         hideInlineHtmlAfter(tokens, idx + 1)
         return ''
       } else {
-        cont = '<span class="star-comment">' + convertSegment(cont)
+        cont = '<span class="star-comment">' + applyRubySegment(cont, rubyEnabled, rubyWrapperCache)
         if (tokens.length === 1) cont += '</span>'
       }
       return cont
@@ -490,14 +506,16 @@ const convertStarComment = (cont, tokens, idx, options, opt, rubyConvert) => {
       return ''
     }
 
-    const processed = convertSegment(cont)
+    const processed = applyRubySegment(cont, rubyEnabled, rubyWrapperCache)
     if (idx === tokens.length - 1) return processed + '</span>'
     return processed
   }
 
   const hasStar = cont.indexOf('★') !== -1
   const hasPlaceholder = cont.indexOf(STAR_PLACEHOLDER_CLOSE) !== -1
-  if (!hasStar && !hasPlaceholder) return convertSegment(cont)
+  if (!hasStar && !hasPlaceholder) {
+    return applyRubySegment(cont, rubyEnabled, rubyWrapperCache)
+  }
 
   STAR_PAIR_REGEXP.lastIndex = 0
   let rebuilt = ''
@@ -505,7 +523,11 @@ const convertStarComment = (cont, tokens, idx, options, opt, rubyConvert) => {
   let starMatch
 
   while ((starMatch = STAR_PAIR_REGEXP.exec(cont)) !== null) {
-    const segment = convertSegment(cont.slice(cursor, starMatch.index))
+    const segment = applyRubySegment(
+      cont.slice(cursor, starMatch.index),
+      rubyEnabled,
+      rubyWrapperCache,
+    )
     rebuilt += applyStrayStar(segment, tokens, idx, opt)
     if (!opt.starCommentDelete) {
       const starBody = starMatch[0]
@@ -514,7 +536,12 @@ const convertStarComment = (cont, tokens, idx, options, opt, rubyConvert) => {
     cursor = starMatch.index + starMatch[0].length
   }
 
-  rebuilt += applyStrayStar(convertSegment(cont.slice(cursor)), tokens, idx, opt)
+  rebuilt += applyStrayStar(
+    applyRubySegment(cont.slice(cursor), rubyEnabled, rubyWrapperCache),
+    tokens,
+    idx,
+    opt,
+  )
 
   return rebuilt
     .replace(STAR_PLACEHOLDER_CLOSE_REGEXP, '</span>')
@@ -661,23 +688,27 @@ const convertInlineText = (tokens, idx, options, opt) => {
   let cont = tokens[idx].content
   const rubyEnabled = !!opt.ruby
   const starEnabled = !!opt.starComment
-  let rubyWrapperCache
-  const rubyConvert = rubyEnabled
-    ? (value) => convertRuby(value, tokens, idx, options, rubyWrapperCache)
-    : null
+  const htmlEnabled = !!(options && options.html)
+  const rubyWrapperCache = rubyEnabled && htmlEnabled
+    ? detectRubyWrapper(tokens, idx)
+    : false
 
-  if (rubyEnabled && options.html) {
-    rubyWrapperCache = detectRubyWrapper(tokens, idx)
-  }
-
-  if (starEnabled && options.html && !opt.insideHtml) {
+  if (starEnabled && htmlEnabled && !opt.insideHtml) {
     ensureInlineHtmlContext(tokens)
   }
 
   if (starEnabled) {
-    cont = convertStarComment(cont, tokens, idx, options, opt, rubyConvert)
-  } else if (rubyConvert) {
-    cont = rubyConvert(cont)
+    cont = convertStarComment(
+      cont,
+      tokens,
+      idx,
+      htmlEnabled,
+      opt,
+      rubyEnabled,
+      rubyWrapperCache,
+    )
+  } else if (rubyEnabled) {
+    cont = convertRuby(cont, rubyWrapperCache)
   }
 
   if (HTML_ENTITIES_REGEXP.test(cont)) {

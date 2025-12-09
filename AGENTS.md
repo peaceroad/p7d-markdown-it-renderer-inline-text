@@ -8,7 +8,7 @@
    - `md.core.ruler.after('inline', …)` registers helpers that annotate inline token arrays (star-line metadata, list pruning, etc.). These run on every `md.render` call once registered.
    - `md.renderer.rules.paragraph_open` / `paragraph_close` are wrapped so we can suppress paragraph/list wrappers once the inline metadata is known.
    - When `insideHtml` is enabled (either explicitly or implicitly by passing `{ html: true }` to the plugin options) the plugin also wraps `md.renderer.rules.html_inline` and `html_block`. The wrapper swaps in converted token content long enough to capture the downstream renderer’s output, then restores the original HTML string so other plugins see the same inputs.
-3. During rendering, every inline `text` token is routed through `convertInlineText`, which applies ruby conversion first (if enabled) and then star-comment conversion.
+3. During rendering, every inline `text` token is routed through `convertInlineText`. The helper inspects the markdown-it rendering context once per token (detecting whether HTML mode is on) and caches ruby-wrapper state when needed. Ruby conversion is applied only when the trigger character is present, and star-comment conversion runs afterward so that ruby output can be wrapped inside the star spans.
 4. Star-comment paragraph/line modes rely on metadata attached to the inline token list (in core rules) so the renderer can decide whether to wrap or drop content without re-scanning block structure.
 
 ## Inline HTML context
@@ -18,8 +18,9 @@
 
 ## Core metadata passes
 
-- `ensureStarCommentLineCore` now lazily creates the ignored-line set and caches each inline block’s end line so both the main scan and global-mode lookahead reuse it. The loop bails as soon as it sees a non-empty, non-star line, which keeps large lists fast.
-- `markStarCommentLineGlobal` reuses a single `breakIdx` per line and only checks the ignored-line set when the metadata actually needs it, so paragraph wrappers don’t burn cycles when the feature is disabled.
+- `ensureStarCommentLineCore` lazily creates the ignored-line set and caches each inline block’s end line so both the main scan and global-mode lookahead reuse it. The loop bails as soon as it sees a non-empty, non-star line, which keeps large lists fast.
+- `markStarCommentLineGlobal` reuses a single `breakIdx` per line and only checks the ignored-line set when the metadata actually needs it.
+- Inline token arrays track a `__starCommentLineCandidate` flag, so we only rescan for global star lines until the metadata is built. Once `__starCommentLineGlobalProcessed` is set, subsequent renders skip the expensive pass entirely while still honoring the cached metadata.
 - Paragraph and list suppression still happens via `patchParagraphRulesForStarLine`, but only once per `markdown-it` instance.
 
 ## Renderer wrappers
