@@ -63,3 +63,23 @@
   <p>通常テキストのもあります。</p>
 </div>
 <p>後段落のも確認。</p>
+
+
+[Markdown]
+<p>HTMLブロック内★スターコメント★。漢字《かんじ》</p>
+[HTML]
+<p>HTMLブロック内★スターコメント★。漢字《かんじ》</p>
+[HTML:html]
+<p>HTMLブロック内<span class="star-comment">★スターコメント★</span>。<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby></p>
+[HTML:delete]
+<p>HTMLブロック内。<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby></p>
+
+
+[Markdown]
+<p class="inline-html">HTML内の漢字《かんじ》にも★スターコメント★があります。</p>
+[HTML]
+<p class="inline-html">HTML内の漢字《かんじ》にも★スターコメント★があります。</p>
+[HTML:html]
+<p class="inline-html">HTML内の<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>にも<span class="star-comment">★スターコメント★</span>があります。</p>
+[HTML:delete]
+<p class="inline-html">HTML内の<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>にもがあります。</p>

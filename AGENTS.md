@@ -7,7 +7,7 @@
    - `md.renderer.rules.text` is replaced with our inline renderer.
    - `md.core.ruler.after('inline', …)` registers helpers that annotate inline token arrays (star-line metadata, list pruning, etc.). These run on every `md.render` call once registered.
    - `md.renderer.rules.paragraph_open` / `paragraph_close` are wrapped so we can suppress paragraph/list wrappers once the inline metadata is known.
-   - When `starCommentHtml` is enabled the plugin also wraps `md.renderer.rules.html_inline` and `html_block`. The wrapper swaps in converted token content long enough to capture the downstream renderer’s output, then restores the original HTML string so other plugins see the same inputs.
+   - When `insideHtml` is enabled (either explicitly or implicitly by passing `{ html: true }` to the plugin options) the plugin also wraps `md.renderer.rules.html_inline` and `html_block`. The wrapper swaps in converted token content long enough to capture the downstream renderer’s output, then restores the original HTML string so other plugins see the same inputs.
 3. During rendering, every inline `text` token is routed through `convertInlineText`, which applies ruby conversion first (if enabled) and then star-comment conversion.
 4. Star-comment paragraph/line modes rely on metadata attached to the inline token list (in core rules) so the renderer can decide whether to wrap or drop content without re-scanning block structure.
 
@@ -24,17 +24,17 @@
 
 ## Renderer wrappers
 
-- `createStarCommentHtmlWrapper` encapsulates the logic for both `html_inline` and `html_block`: it swaps the converted string into `token.content`, delegates to the downstream renderer, then restores the original content so other plugins see unmodified HTML. This keeps the HTML conversion path in sync for inline and block tokens while avoiding repeated boilerplate.
+- `createHtmlTokenWrapper` encapsulates the logic for both `html_inline` and `html_block`: it runs ruby conversion first, then star-comment conversion on the html token’s `content`, delegates to the downstream renderer, then restores the original string so other plugins see unmodified HTML. This keeps the HTML conversion path in sync for inline and block tokens while avoiding repeated boilerplate.
 
-## starCommentHtml specifics
+## insideHtml specifics
 
-- Inline HTML conversion respects nested structures by tracking when a text token is “inside” an HTML span. We only rewrite those spans when `starCommentHtml` is true; otherwise the inline content is left intact so handwritten markup is untouched.
+- Inline HTML conversion respects nested structures by tracking when a text token is “inside” an HTML span. We only rewrite those spans when `insideHtml` is true; otherwise the inline content is left intact so handwritten markup is untouched. Callers can set `insideHtml: true` or simply pass `{ html: true }` to the plugin to flip it on automatically.
 - HTML block tokens are processed with the same splitter, allowing multi-paragraph `<div>` fixtures that mix Markdown content after the block.
 - Because markdown-it plugins run in registration order, ask you to register this plugin after any other plugin that overrides `html_inline`/`html_block` if they expect those renderers to see the converted content.
 
 ## Additional Extension Ideas
 
 - Expose a hook so callers can register custom inline markers (besides `★`) while reusing the same metadata plumbing; this mostly requires threading marker definitions into `findUsableStar`/`STAR_PAIR_REGEXP`.
-- Allow user-provided HTML transformers to plug into `createStarCommentHtmlWrapper` so arbitrary rewrites (e.g., tooltip injection) can piggyback on the existing safe swapping pattern.
+- Allow user-provided HTML transformers to plug into `createHtmlTokenWrapper` so arbitrary rewrites (e.g., tooltip injection) can piggyback on the existing safe swapping pattern.
 - Cache `convertStarCommentHtmlContent` results per HTML token when rendering the same document repeatedly, which would benefit server-side rendering scenarios with identical inputs.
 

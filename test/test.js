@@ -155,13 +155,15 @@ const check = (ms, example) => {
     starCommentLine: true,
   })
   const mdStarCommentHtmlInline = mdit({ html: true }).use(mdRendererInlineText, {
+    ruby: true,
     starComment: true,
-    starCommentHtml: true,
+    insideHtml: true,
   })
   const mdStarCommentDeleteHtmlInline = mdit({ html: true }).use(mdRendererInlineText, {
+    ruby: true,
     starComment: true,
     starCommentDelete: true,
-    starCommentHtml: true,
+    insideHtml: true,
   })
 
   const errors = []

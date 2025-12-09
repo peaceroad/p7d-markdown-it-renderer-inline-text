@@ -443,7 +443,7 @@ const convertStarComment = (cont, tokens, idx, options, opt, rubyConvert) => {
   const convertSegment = rubyConvert || identity
   const isParagraphStar = opt.starCommentParagraph && isStarCommentParagraph(tokens)
   const currentToken = tokens[idx]
-  const insideInlineHtml = options && options.html && !opt.starCommentHtml
+  const insideInlineHtml = options && options.html && !opt.insideHtml
     && currentToken
     && currentToken.meta
     && currentToken.meta.__insideHtmlInline
@@ -525,23 +525,30 @@ const convertStarCommentHtmlSegment = (segment, opt) => {
   if (!segment || segment.indexOf(STAR_CHAR) === -1) return segment
   let rebuilt = ''
   let cursor = 0
+  let openIdx = -1
 
-  while (cursor < segment.length) {
-    const start = findUsableStar(segment, cursor)
-    if (start === -1) {
-      rebuilt += segment.slice(cursor)
-      break
+  for (let i = 0; i < segment.length; i++) {
+    if (segment.charCodeAt(i) !== STAR_CHAR_CODE) continue
+    if (segment.startsWith(STAR_PLACEHOLDER_CLOSE, i + 1)) continue
+    if (isEscapedStar(segment, i)) continue
+    if (openIdx === -1) {
+      openIdx = i
+      continue
     }
-    const end = findUsableStar(segment, start + 1)
-    if (end === -1) {
-      rebuilt += segment.slice(cursor)
-      break
-    }
-    rebuilt += segment.slice(cursor, start)
+    rebuilt += segment.slice(cursor, openIdx)
     if (!opt.starCommentDelete) {
-      rebuilt += '<span class="star-comment">' + segment.slice(start, end + 1) + '</span>'
+      rebuilt += '<span class="star-comment">' + segment.slice(openIdx, i + 1) + '</span>'
     }
-    cursor = end + 1
+    cursor = i + 1
+    openIdx = -1
+  }
+
+  if (openIdx !== -1) {
+    rebuilt += segment.slice(cursor, openIdx)
+    cursor = openIdx
+  }
+  if (cursor < segment.length) {
+    rebuilt += segment.slice(cursor)
   }
   return rebuilt
 }
@@ -568,14 +575,45 @@ const convertStarCommentHtmlContent = (value, opt) => {
   return rebuilt
 }
 
-const createStarCommentHtmlWrapper = (defaultRenderer, opt) => {
+const convertRubyHtmlContent = (value) => {
+  if (!value || !RUBY_TRIGGER_REGEXP.test(value)) return value
+  RUBY_REGEXP.lastIndex = 0
+  let replaced = false
+  const converted = value.replace(RUBY_REGEXP, (match, openTag, base, reading, closeTag) => {
+    if (!base || !reading) return match
+    if ((openTag && !closeTag) || (closeTag && !openTag)) return match
+    replaced = true
+    const rubyCont = base + '<rp>《</rp><rt>' + reading + '</rt><rp>》</rp>'
+    const opener = openTag || '<ruby>'
+    const closer = closeTag || '</ruby>'
+    return opener + rubyCont + closer
+  })
+  return replaced ? converted : value
+}
+
+const convertHtmlTokenContent = (value, opt) => {
+  if (!value) return value
+  const needsRuby = opt.ruby && RUBY_TRIGGER_REGEXP.test(value)
+  const needsStar = opt.starComment && value.indexOf(STAR_CHAR) !== -1
+  if (!needsRuby && !needsStar) return value
+  let converted = value
+  if (needsRuby) {
+    converted = convertRubyHtmlContent(converted)
+  }
+  if (needsStar) {
+    converted = convertStarCommentHtmlContent(converted, opt)
+  }
+  return converted
+}
+
+const createHtmlTokenWrapper = (defaultRenderer, opt) => {
   return (tokens, idx, options, env, self) => {
     const token = tokens[idx]
     const original = token && token.content ? token.content : ''
-    if (!original || original.indexOf(STAR_CHAR) === -1) {
+    if (!original) {
       return defaultRenderer(tokens, idx, options, env, self)
     }
-    const converted = convertStarCommentHtmlContent(original, opt)
+    const converted = convertHtmlTokenContent(original, opt)
     if (converted === original) {
       return defaultRenderer(tokens, idx, options, env, self)
     }
@@ -632,7 +670,7 @@ const convertInlineText = (tokens, idx, options, opt) => {
     rubyWrapperCache = detectRubyWrapper(tokens, idx)
   }
 
-  if (starEnabled && options.html && !opt.starCommentHtml) {
+  if (starEnabled && options.html && !opt.insideHtml) {
     ensureInlineHtmlContext(tokens)
   }
 
@@ -655,8 +693,11 @@ function rendererInlineText (md, option = {}) {
     starCommentDelete: false,
     starCommentParagraph: false,
     starCommentLine: false,
-    starCommentHtml: false,
+    insideHtml: false,
     ...option,
+  }
+  if (option && option.html) {
+    opt.insideHtml = true
   }
 
   if (opt.starCommentLine) {
@@ -671,14 +712,15 @@ function rendererInlineText (md, option = {}) {
   md.__starCommentLineGlobalEnabled = !!opt.starCommentLine
   md.__starCommentParagraphDeleteEnabled = !!(opt.starCommentParagraph && opt.starCommentDelete)
 
-  if (opt.starComment && opt.starCommentHtml) {
+  const shouldConvertInsideHtml = opt.insideHtml && (opt.starComment || opt.ruby)
+  if (shouldConvertInsideHtml) {
     const defaultHtmlInline = md.renderer.rules.html_inline
       || ((tokens, idx) => tokens[idx].content)
     const defaultHtmlBlock = md.renderer.rules.html_block
       || ((tokens, idx) => tokens[idx].content)
 
-    md.renderer.rules.html_inline = createStarCommentHtmlWrapper(defaultHtmlInline, opt)
-    md.renderer.rules.html_block = createStarCommentHtmlWrapper(defaultHtmlBlock, opt)
+    md.renderer.rules.html_inline = createHtmlTokenWrapper(defaultHtmlInline, opt)
+    md.renderer.rules.html_block = createHtmlTokenWrapper(defaultHtmlBlock, opt)
   }
 
   md.renderer.rules.text = (tokens, idx, options) => {
