@@ -31,9 +31,9 @@ console.log(md.render('ここには高出力<ruby>超電磁砲《レールガン
 //<p>ここには高出力<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>が装備されています。</p>
 ```
 
-Notice. If this program has not `html: true`,  output same HTML.
+Notice. If markdown-it is not created with `html: true`, the renderer never hands HTML tokens to this plugin, so the output stays unchanged.
 
-Set `insideHtml: true` (or simply pass `{ html: true }` to the plugin options, which now flips `insideHtml` on automatically) together with `md({ html: true })` when you also need ruby markers that live inside raw HTML tokens to be converted.
+When you _do_ render HTML, set `insideHtml: true` yourself or just pass `{ html: true }` into the plugin options; the plugin automatically flips `insideHtml` on in that case so ruby markers that live inside raw HTML tokens are converted without extra configuration.
 
 ### Example
 
@@ -67,7 +67,7 @@ The following string is considered a comment.
 - Strings surrounded by ★
 - Replace: `<span class="star-comment">$1</span>`
 
-Enable `insideHtml: true` (or rely on the automatic toggle when you pass `{ html: true }` to the plugin options) together with `md({ html: true })` when you also want ★ comments or ruby markers that live inside inline HTML tags or HTML block tokens to be converted.
+Enable `insideHtml: true` yourself, or rely on the automatic toggle that happens whenever you pass `{ html: true }` to the plugin options, when you also want ★ comments or ruby markers that live inside inline HTML tags or HTML block tokens to be converted.
 
 ### Basic use
 
@@ -86,7 +86,7 @@ console.log(md.render('スターは\★と書けばコメント扱いされま�
 //<p>スターは★と書けばコメント扱いされません★。</p>
 ```
 
-Inline HTML such as `<span>★…★</span>` is ignored by default so you can safely mix handwritten markup. Enable `insideHtml: true` (with `md({ html: true })`), or set `{ html: true }` inside the plugin options which automatically flips `insideHtml`, when you also want ★ comments or ruby markers that live inside inline HTML tags to be converted.
+Inline HTML such as `<span>★…★</span>` is ignored by default so you can safely mix handwritten markup. Enable `insideHtml: true` (with `md({ html: true })`), or simply pass `{ html: true }` to the plugin options (which automatically flips `insideHtml`) when you also want ★ comments or ruby markers that live inside inline HTML tags to be converted.
 
 ### HTML tokens (`insideHtml`)
 
@@ -96,7 +96,6 @@ const mdRendererInlineText = require('@peaceroad/markdown-it-renderer-inline-tex
 
 md({html: true}).use(mdRendererInlineText, {
   starComment: true,
-  insideHtml: true,
   ruby: true,
 })
 
@@ -106,6 +105,8 @@ console.log(md.render('段落内の<span class="note">★スターコメント�
 console.log(md.render('<p>HTMLブロック内★スターコメント★。漢字《かんじ》</p>'))
 //<p>HTMLブロック内<span class="star-comment">★スターコメント★</span>。<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby></p>
 ```
+
+Because `{ html: true }` in the plugin options automatically enables `insideHtml`, you only need to set `insideHtml: true` manually if you run the plugin without html mode globally and still want inline HTML rewrites inside fenced snippets.
 
 `insideHtml` also honors `starCommentDelete`, so inline HTML spans or block-level HTML snippets containing ★ comments disappear when deletion mode is enabled, and ruby markers that live inside those HTML fragments are still converted.
 
@@ -191,4 +192,3 @@ console.log(md.render('★この段落はコメントとみなします。')
 Enable `starCommentLine: true` together with `starCommentDelete` when you want to drop entire ★ lines regardless of paragraph boundaries.
 List items that begin with ★ are also removed when `starCommentParagraph` runs with `starCommentDelete`, so comment-only bullets don’t leave empty markers.
 `insideHtml: true` works together with `starCommentDelete`, so ★ comments inside inline HTML (e.g. `<span>★…★</span>`) are removed as well when deletion is enabled.
-```
