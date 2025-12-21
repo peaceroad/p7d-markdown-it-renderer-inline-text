@@ -33,6 +33,13 @@
 [HTML:delete]
 
 
+[Markdown]
+★開始`★`コード内でも閉じません。
+[HTML]
+<p><span class="star-comment">★開始<code>★</code>コード内でも閉じません。</span></p>
+[HTML:delete]
+
+
 
 [Markdown]
 \★文頭の★スターコメントは<span>その行</span>がコメント★と処理されます。
@@ -54,5 +61,4 @@
 <ul>
 <li>通常の行</li>
 </ul>
-
 

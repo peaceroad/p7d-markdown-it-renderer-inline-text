@@ -1,0 +1,20 @@
+[Markdown]
+★行頭コメントです。
+通常行です。
+[HTML]
+<p><span class="star-comment">★行頭コメントです。</span>
+通常行です。</p>
+[HTML:delete]
+<p>通常行です。</p>
+
+
+[Markdown]
+★コメント1
+★コメント2
+通常行
+[HTML]
+<p><span class="star-comment">★コメント1</span>
+<span class="star-comment">★コメント2</span>
+通常行</p>
+[HTML:delete]
+<p>通常行</p>

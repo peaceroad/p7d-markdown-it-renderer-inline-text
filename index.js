@@ -74,13 +74,21 @@ const ensureInlineHtmlContext = (tokens) => {
   }
 }
 
-const hideInlineHtmlAfter = (tokens, startIdx) => {
+const hideInlineTokensAfter = (tokens, startIdx) => {
   let pointer = startIdx
   while (pointer < tokens.length) {
     const token = tokens[pointer]
-    if (token.type !== 'html_inline') break
-    token.content = ''
-    token.hidden = true
+    if (token) {
+      token.hidden = true
+      token.content = ''
+      token.tag = ''
+      token.nesting = 0
+      if (token.type !== 'text') {
+        token.type = 'text'
+      }
+      token.meta = token.meta || {}
+      token.meta.__starCommentDelete = true
+    }
     pointer++
   }
 }
@@ -117,6 +125,36 @@ const lineStartsWithStar = (line) => {
   if (idx >= line.length) return false
   if (line[idx] !== STAR_CHAR) return false
   return !isEscapedStar(line, idx)
+}
+
+const getStarCommentLineCache = (md, src) => {
+  const cache = md.__starCommentLineCache
+  if (cache && cache.src === src) return cache
+  const lines = src.split(/\r?\n/)
+  const nextCache = {
+    src,
+    lines,
+    starFlags: new Array(lines.length),
+    trimmedLines: new Array(lines.length),
+  }
+  md.__starCommentLineCache = nextCache
+  return nextCache
+}
+
+const getCachedStarLineFlag = (cache, idx) => {
+  let flag = cache.starFlags[idx]
+  if (flag !== undefined) return flag
+  flag = lineStartsWithStar(cache.lines[idx] || '')
+  cache.starFlags[idx] = flag
+  return flag
+}
+
+const getCachedTrimmedLine = (cache, idx) => {
+  let trimmed = cache.trimmedLines[idx]
+  if (trimmed !== undefined) return trimmed
+  trimmed = (cache.lines[idx] || '').trim()
+  cache.trimmedLines[idx] = trimmed
+  return trimmed
 }
 
 const hideTokenRange = (tokens, start, end) => {
@@ -163,19 +201,86 @@ const findUsableStar = (text, start = 0) => {
   return -1
 }
 
+const isStarIndexReserved = (token, starIdx) => {
+  const meta = token && token.meta
+  const reserved = meta && meta.__starCommentReservedIdxs
+  return !!(reserved && reserved.indexOf(starIdx) !== -1)
+}
+
+const reserveStarIndex = (token, starIdx) => {
+  if (!token) return
+  token.meta = token.meta || {}
+  const reserved = token.meta.__starCommentReservedIdxs
+  if (reserved) {
+    if (reserved.indexOf(starIdx) === -1) {
+      reserved.push(starIdx)
+    }
+  } else {
+    token.meta.__starCommentReservedIdxs = [starIdx]
+  }
+}
+
+const findUsableStarInToken = (token, start = 0) => {
+  if (!token || typeof token.content !== 'string') return -1
+  const text = token.content
+  let position = text.indexOf(STAR_CHAR, start)
+  while (position !== -1) {
+    if (!isStarIndexReserved(token, position)
+      && !text.startsWith(STAR_PLACEHOLDER_CLOSE, position + 1)
+      && !isEscapedStar(text, position)) {
+      return position
+    }
+    position = text.indexOf(STAR_CHAR, position + 1)
+  }
+  return -1
+}
+
+const injectStarClosePlaceholders = (value, indices) => {
+  if (!indices || !indices.length) return value
+  let rebuilt = value
+  for (let i = indices.length - 1; i >= 0; i--) {
+    const idx = indices[i]
+    if (idx < 0 || idx >= value.length) continue
+    rebuilt = rebuilt.slice(0, idx + 1)
+      + STAR_PLACEHOLDER_CLOSE
+      + rebuilt.slice(idx + 1)
+  }
+  return rebuilt
+}
+
 const scrubToken = (token) => {
   if (!token) return
-  token.content = ''
   token.hidden = true
+  token.content = ''
+  token.tag = ''
+  token.nesting = 0
+  if (token.type !== 'text') {
+    token.type = 'text'
+  }
+  token.meta = token.meta || {}
+  token.meta.__starCommentDelete = true
 }
 
 const escapeInlineHtml = (value) => {
-  return value
-    .replace(HTML_AMP_REGEXP, '&amp;')
-    .replace(HTML_LT_NONTAG_REGEXP, '&lt;')
-    .replace(HTML_GT_NONTAG_REGEXP, '&gt;')
-    .replace(HTML_EMPTY_TAG_REGEXP, '&lt;$1&gt;')
-    .replace(HTML_SLASHED_TAG_REGEXP, '&lt;$1&gt;')
+  let escaped = value
+  const hasAmp = escaped.indexOf('&') !== -1
+  const hasLt = escaped.indexOf('<') !== -1
+  const hasGt = escaped.indexOf('>') !== -1
+  if (hasAmp) {
+    escaped = escaped.replace(HTML_AMP_REGEXP, '&amp;')
+  }
+  if (hasLt) {
+    escaped = escaped.replace(HTML_LT_NONTAG_REGEXP, '&lt;')
+  }
+  if (hasGt) {
+    escaped = escaped.replace(HTML_GT_NONTAG_REGEXP, '&gt;')
+  }
+  if (hasLt) {
+    escaped = escaped
+      .replace(HTML_EMPTY_TAG_REGEXP, '&lt;$1&gt;')
+      .replace(HTML_SLASHED_TAG_REGEXP, '&lt;$1&gt;')
+  }
+  return escaped
 }
 
 const isIgnoredStarLineToken = (token) => {
@@ -284,7 +389,8 @@ const ensureStarCommentLineCore = (md) => {
 
   md.core.ruler.after('inline', 'star_comment_line_marker', (state) => {
     if (!state.tokens || !state.tokens.length || !state.src) return
-    const srcLines = state.src.split(/\r?\n/)
+    if (state.src.indexOf(STAR_CHAR) === -1) return
+    const cache = getStarCommentLineCache(md, state.src)
     let ignoredLines = null
     for (let i = 0; i < state.tokens.length; i++) {
       const token = state.tokens[i]
@@ -303,8 +409,7 @@ const ensureStarCommentLineCore = (md) => {
       let lineIdx = token.map[0]
       while (lineIdx < blockEnd) {
         if (!ignoredLines || !ignoredLines.has(lineIdx)) {
-          const lineText = srcLines[lineIdx] || ''
-          if (lineStartsWithStar(lineText)) {
+          if (getCachedStarLineFlag(cache, lineIdx)) {
             let markLine = true
             if (md.__starCommentLineGlobalEnabled) {
               let lookahead = lineIdx + 1
@@ -313,13 +418,12 @@ const ensureStarCommentLineCore = (md) => {
                   lookahead++
                   continue
                 }
-                const lookLineText = srcLines[lookahead] || ''
-                const trimmed = lookLineText.trim()
+                const trimmed = getCachedTrimmedLine(cache, lookahead)
                 if (trimmed === '') {
                   lookahead++
                   continue
                 }
-                if (!lineStartsWithStar(lookLineText)) {
+                if (!getCachedStarLineFlag(cache, lookahead)) {
                   markLine = false
                   break
                 }
@@ -332,7 +436,7 @@ const ensureStarCommentLineCore = (md) => {
             }
             break
           }
-          const trimmedLine = lineText.trim()
+          const trimmedLine = getCachedTrimmedLine(cache, lineIdx)
           if (trimmedLine !== '') {
             break
           }
@@ -405,10 +509,10 @@ const ensureStarCommentLineDeleteSupport = (md) => {
   patchParagraphRulesForStarLine(md)
 }
 
-const applyStrayStar = (segment, tokens, idx, opt) => {
+const applyStrayStar = (segment, tokens, idx, opt, htmlEnabled) => {
   const strayIndex = findUsableStar(segment)
   if (strayIndex === -1) return segment
-  const hasNextStarPos = hasNextStar(tokens, idx, opt)
+  const hasNextStarPos = hasNextStar(tokens, idx, opt, htmlEnabled)
   if (hasNextStarPos === -1) return segment
   const starBeforeCont = segment.slice(0, strayIndex)
   const starAfterCont = segment.slice(strayIndex + 1)
@@ -417,9 +521,7 @@ const applyStrayStar = (segment, tokens, idx, opt) => {
     : starBeforeCont + '<span class="star-comment">★' + starAfterCont
 }
 
-const convertRuby = (cont, hasRubyWrapper) => {
-  if (!RUBY_TRIGGER_REGEXP.test(cont)) return cont
-
+const convertRubyKnown = (cont, hasRubyWrapper) => {
   RUBY_REGEXP.lastIndex = 0
   let replaced = false
   const converted = cont.replace(RUBY_REGEXP, (match, openTag, base, reading, closeTag) => {
@@ -433,9 +535,9 @@ const convertRuby = (cont, hasRubyWrapper) => {
   return replaced ? converted : cont
 }
 
-const applyRubySegment = (value, rubyEnabled, hasRubyWrapper) => {
-  if (!rubyEnabled) return value
-  return convertRuby(value, hasRubyWrapper)
+const applyRubySegment = (value, rubyActive, hasRubyWrapper) => {
+  if (!rubyActive) return value
+  return convertRubyKnown(value, hasRubyWrapper)
 }
 
 const hasStarCommentLineCandidate = (tokens) => {
@@ -454,33 +556,51 @@ const hasStarCommentLineCandidate = (tokens) => {
   return false
 }
 
-const convertStarComment = (cont, tokens, idx, htmlEnabled, opt, rubyEnabled, rubyWrapperCache) => {
+const convertStarComment = (cont, tokens, idx, htmlEnabled, opt, rubyActive, rubyWrapperCache) => {
   const isParagraphStar = opt.starCommentParagraph && isStarCommentParagraph(tokens)
   const currentToken = tokens[idx]
   const insideInlineHtml = htmlEnabled && !opt.insideHtml
     && currentToken
     && currentToken.meta
     && currentToken.meta.__insideHtmlInline
+  let meta = currentToken && currentToken.meta
+  const hasInjectedClose = !!(meta && meta.__starCommentInjectedCloseAt && meta.__starCommentInjectedCloseAt.length)
+  if (meta && meta.__starCommentDelete) {
+    return ''
+  }
+  if (meta && typeof meta.__starCommentDeleteFrom === 'number') {
+    cont = cont.slice(meta.__starCommentDeleteFrom)
+  }
+  if (hasInjectedClose) {
+    cont = injectStarClosePlaceholders(cont, meta.__starCommentInjectedCloseAt)
+  }
 
   if (insideInlineHtml && !isParagraphStar) {
-    return applyRubySegment(cont, rubyEnabled, rubyWrapperCache)
+    let processed = applyRubySegment(cont, rubyActive, rubyWrapperCache)
+    if (hasInjectedClose) {
+      processed = processed.replace(STAR_PLACEHOLDER_CLOSE_REGEXP, '</span>')
+    }
+    return processed
   }
 
   if (opt.starCommentLine) {
     if (!tokens.__starCommentLineGlobalProcessed && hasStarCommentLineCandidate(tokens)) {
       markStarCommentLineGlobal(tokens, opt)
     }
-    const meta = currentToken && currentToken.meta
+    meta = currentToken && currentToken.meta
     if (meta && meta.__starLineGlobal) {
       if (opt.starCommentDelete) {
         return ''
       }
-      let processed = applyRubySegment(cont, rubyEnabled, rubyWrapperCache)
+      let processed = applyRubySegment(cont, rubyActive, rubyWrapperCache)
       if (meta.__starLineGlobalStart) {
         processed = '<span class="star-comment">' + processed
       }
       if (meta.__starLineGlobalEnd) {
         processed += '</span>'
+      }
+      if (hasInjectedClose) {
+        processed = processed.replace(STAR_PLACEHOLDER_CLOSE_REGEXP, '</span>')
       }
       return processed
     }
@@ -492,29 +612,35 @@ const convertStarComment = (cont, tokens, idx, htmlEnabled, opt, rubyEnabled, ru
     }
     if (idx === 0) {
       if (opt.starCommentDelete) {
-        hideInlineHtmlAfter(tokens, idx + 1)
+        hideInlineTokensAfter(tokens, idx + 1)
         return ''
       } else {
-        cont = '<span class="star-comment">' + applyRubySegment(cont, rubyEnabled, rubyWrapperCache)
+        cont = '<span class="star-comment">' + applyRubySegment(cont, rubyActive, rubyWrapperCache)
         if (tokens.length === 1) cont += '</span>'
+      }
+      if (hasInjectedClose) {
+        cont = cont.replace(STAR_PLACEHOLDER_CLOSE_REGEXP, '</span>')
       }
       return cont
     }
 
     if (opt.starCommentDelete) {
-      hideInlineHtmlAfter(tokens, idx + 1)
+      hideInlineTokensAfter(tokens, idx + 1)
       return ''
     }
 
-    const processed = applyRubySegment(cont, rubyEnabled, rubyWrapperCache)
+    let processed = applyRubySegment(cont, rubyActive, rubyWrapperCache)
+    if (hasInjectedClose) {
+      processed = processed.replace(STAR_PLACEHOLDER_CLOSE_REGEXP, '</span>')
+    }
     if (idx === tokens.length - 1) return processed + '</span>'
     return processed
   }
 
-  const hasStar = cont.indexOf('★') !== -1
+  const hasStar = cont.indexOf(STAR_CHAR) !== -1
   const hasPlaceholder = cont.indexOf(STAR_PLACEHOLDER_CLOSE) !== -1
   if (!hasStar && !hasPlaceholder) {
-    return applyRubySegment(cont, rubyEnabled, rubyWrapperCache)
+    return applyRubySegment(cont, rubyActive, rubyWrapperCache)
   }
 
   STAR_PAIR_REGEXP.lastIndex = 0
@@ -525,10 +651,10 @@ const convertStarComment = (cont, tokens, idx, htmlEnabled, opt, rubyEnabled, ru
   while ((starMatch = STAR_PAIR_REGEXP.exec(cont)) !== null) {
     const segment = applyRubySegment(
       cont.slice(cursor, starMatch.index),
-      rubyEnabled,
+      rubyActive,
       rubyWrapperCache,
     )
-    rebuilt += applyStrayStar(segment, tokens, idx, opt)
+    rebuilt += applyStrayStar(segment, tokens, idx, opt, htmlEnabled)
     if (!opt.starCommentDelete) {
       const starBody = starMatch[0]
       rebuilt += '<span class="star-comment">' + starBody + STAR_PLACEHOLDER_CLOSE
@@ -537,10 +663,11 @@ const convertStarComment = (cont, tokens, idx, htmlEnabled, opt, rubyEnabled, ru
   }
 
   rebuilt += applyStrayStar(
-    applyRubySegment(cont.slice(cursor), rubyEnabled, rubyWrapperCache),
+    applyRubySegment(cont.slice(cursor), rubyActive, rubyWrapperCache),
     tokens,
     idx,
     opt,
+    htmlEnabled,
   )
 
   return rebuilt
@@ -651,26 +778,32 @@ const createHtmlTokenWrapper = (defaultRenderer, opt) => {
   }
 }
 
-const hasNextStar = (tokens, idx, opt) => {
+const hasNextStar = (tokens, idx, opt, htmlEnabled) => {
   let hasNextStarPos = -1
   let i = idx + 1
   while (i < tokens.length) {
     const token = tokens[i]
-    if (!token) {
+    if (!token || token.type !== 'text' || typeof token.content !== 'string') {
       i++
       continue
     }
-    const starIdx = findUsableStar(token.content)
+    if (htmlEnabled && !opt.insideHtml && token.meta && token.meta.__insideHtmlInline) {
+      i++
+      continue
+    }
+    const starIdx = findUsableStarInToken(token)
     if (starIdx === -1) {
       i++
       continue
     }
+    reserveStarIndex(token, starIdx)
+    const meta = token.meta
     if (opt.starCommentDelete) {
-      token.content = token.content.slice(starIdx + 1)
+      meta.__starCommentDeleteFrom = starIdx + 1
+    } else if (meta.__starCommentInjectedCloseAt) {
+      meta.__starCommentInjectedCloseAt.push(starIdx)
     } else {
-      token.content = token.content.slice(0, starIdx + 1)
-        + STAR_PLACEHOLDER_CLOSE
-        + token.content.slice(starIdx + 1)
+      meta.__starCommentInjectedCloseAt = [starIdx]
     }
     hasNextStarPos = i
     break
@@ -686,10 +819,14 @@ const hasNextStar = (tokens, idx, opt) => {
 
 const convertInlineText = (tokens, idx, options, opt) => {
   let cont = tokens[idx].content
+  if (typeof cont !== 'string') {
+    cont = cont == null ? '' : String(cont)
+  }
   const rubyEnabled = !!opt.ruby
   const starEnabled = !!opt.starComment
   const htmlEnabled = !!(options && options.html)
-  const rubyWrapperCache = rubyEnabled && htmlEnabled
+  const rubyActive = rubyEnabled && RUBY_TRIGGER_REGEXP.test(cont)
+  const rubyWrapperCache = rubyActive && htmlEnabled
     ? detectRubyWrapper(tokens, idx)
     : false
 
@@ -704,11 +841,13 @@ const convertInlineText = (tokens, idx, options, opt) => {
       idx,
       htmlEnabled,
       opt,
-      rubyEnabled,
+      rubyActive,
       rubyWrapperCache,
     )
   } else if (rubyEnabled) {
-    cont = convertRuby(cont, rubyWrapperCache)
+    if (rubyActive) {
+      cont = convertRubyKnown(cont, rubyWrapperCache)
+    }
   }
 
   if (HTML_ENTITIES_REGEXP.test(cont)) {
@@ -730,6 +869,7 @@ function rendererInlineText (md, option = {}) {
   if (option && option.html) {
     opt.insideHtml = true
   }
+  opt.starCommentParagraph = opt.starCommentParagraph && !opt.starCommentLine
 
   if (opt.starCommentLine) {
     ensureStarCommentLineCore(md)

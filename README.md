@@ -131,6 +131,8 @@ console.log(md.render('★文頭にスターがあるとその段落をコメン
 
 `starCommentLine` treats every editor line that begins with ★ as a star comment, even if the paragraph continues on other lines. Lines rendered inside fenced code blocks or math blocks are ignored so snippets remain untouched. Combine it with `starCommentDelete` when you want to strip those lines entirely.
 
+When `starCommentLine` and `starCommentParagraph` are both enabled, line comments take precedence and paragraph comment mode is ignored.
+
 ```js
 md().use(mdRendererInlineText, {
   starComment: true,

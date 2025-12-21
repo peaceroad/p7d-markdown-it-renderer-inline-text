@@ -1,0 +1,24 @@
+[Markdown]
+漢
+A
+[HTML]
+<p>漢A</p>
+
+[Markdown]
+こんにちは！
+World
+[HTML]
+<p>こんにちは！ World</p>
+
+[Markdown]
+**漢**
+**字**
+[HTML]
+<p><strong>漢</strong>
+<strong>字</strong></p>
+
+[Markdown]
+文章中の★スターコメント★と漢
+字
+[HTML]
+<p>文章中の<span class="star-comment">★スターコメント★</span>と漢字</p>

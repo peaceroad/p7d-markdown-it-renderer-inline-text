@@ -2,6 +2,7 @@ import assert from 'assert'
 import fs from 'fs'
 import path from 'path'
 import mdit from 'markdown-it'
+import cjkBreaks from '@peaceroad/markdown-it-cjk-breaks-mod'
 import mdRendererInlineText from '../index.js'
 import { fileURLToPath } from 'url'
 
@@ -10,10 +11,14 @@ const __dirname = path.dirname(__filename)
 
 const MARKDOWN_HEADER = /^\[Markdown\]\s*$/
 const SUPPORTED_EXAMPLES = new Set([
+  'cjkDefault',
+  'cjkHalfEither',
+  'cjkHalfEitherNormalize',
   'ruby',
   'starComment',
   'starCommentParagraph',
   'starCommentLine',
+  'starCommentLineParagraph',
   'starCommentHtml',
   'complex',
 ])
@@ -144,6 +149,16 @@ const check = (ms, example) => {
     starComment: true,
     starCommentLine: true,
   })
+  const mdStarCommentLineParagraph = mdit().use(mdRendererInlineText, {
+    starComment: true,
+    starCommentLine: true,
+    starCommentParagraph: true,
+  })
+  const mdStarCommentLineParagraphWithHtml = mdit({ html: true }).use(mdRendererInlineText, {
+    starComment: true,
+    starCommentLine: true,
+    starCommentParagraph: true,
+  })
   const mdStarCommentDeleteLine = mdit().use(mdRendererInlineText, {
     starComment: true,
     starCommentDelete: true,
@@ -153,6 +168,18 @@ const check = (ms, example) => {
     starComment: true,
     starCommentDelete: true,
     starCommentLine: true,
+  })
+  const mdStarCommentDeleteLineParagraph = mdit().use(mdRendererInlineText, {
+    starComment: true,
+    starCommentDelete: true,
+    starCommentLine: true,
+    starCommentParagraph: true,
+  })
+  const mdStarCommentDeleteLineParagraphWithHtml = mdit({ html: true }).use(mdRendererInlineText, {
+    starComment: true,
+    starCommentDelete: true,
+    starCommentLine: true,
+    starCommentParagraph: true,
   })
   const mdStarCommentHtmlInline = mdit({ html: true }).use(mdRendererInlineText, {
     ruby: true,
@@ -164,6 +191,25 @@ const check = (ms, example) => {
     starComment: true,
     starCommentDelete: true,
     insideHtml: true,
+  })
+  const mdCjkDefault = mdit().use(mdRendererInlineText, {
+    ruby: true,
+    starComment: true,
+  }).use(cjkBreaks)
+  const mdCjkHalfEither = mdit().use(mdRendererInlineText, {
+    ruby: true,
+    starComment: true,
+  }).use(cjkBreaks, {
+    spaceAfterPunctuation: 'half',
+    either: true,
+  })
+  const mdCjkHalfEitherNormalize = mdit().use(mdRendererInlineText, {
+    ruby: true,
+    starComment: true,
+  }).use(cjkBreaks, {
+    spaceAfterPunctuation: 'half',
+    normalizeSoftBreaks: true,
+    either: true,
   })
 
   const errors = []
@@ -208,6 +254,17 @@ const check = (ms, example) => {
       compareOutput(errors, example, n, '[lineDelete HTML:true]', markdown, hscldh, entry.htmlStarCommentDelete)
     }
 
+    if (example === 'starCommentLineParagraph') {
+      const hsclp = mdStarCommentLineParagraph.render(markdown)
+      compareOutput(errors, example, n, '[lineParagraph HTML:false]', markdown, hsclp, entry.html)
+      const hsclph = mdStarCommentLineParagraphWithHtml.render(markdown)
+      compareOutput(errors, example, n, '[lineParagraph HTML:true]', markdown, hsclph, entry.html)
+      const hsclpd = mdStarCommentDeleteLineParagraph.render(markdown)
+      compareOutput(errors, example, n, '[lineParagraphDelete HTML:false]', markdown, hsclpd, entry.htmlStarCommentDelete)
+      const hsclpdh = mdStarCommentDeleteLineParagraphWithHtml.render(markdown)
+      compareOutput(errors, example, n, '[lineParagraphDelete HTML:true]', markdown, hsclpdh, entry.htmlStarCommentDelete)
+    }
+
     if (example === 'starCommentHtml') {
       const baseHtml = mdWithHtml.render(markdown)
       compareOutput(errors, example, n, '[htmlInline base]', markdown, baseHtml, entry.html)
@@ -215,6 +272,21 @@ const check = (ms, example) => {
       compareOutput(errors, example, n, '[htmlInline starComment]', markdown, htmlConverted, entry.htmlStarCommentHtml)
       const htmlDeleted = mdStarCommentDeleteHtmlInline.render(markdown)
       compareOutput(errors, example, n, '[htmlInline delete]', markdown, htmlDeleted, entry.htmlStarCommentDelete)
+    }
+
+    if (example === 'cjkDefault') {
+      const hcjk = mdCjkDefault.render(markdown)
+      compareOutput(errors, example, n, '[cjk default]', markdown, hcjk, entry.html)
+    }
+
+    if (example === 'cjkHalfEither') {
+      const hcjk = mdCjkHalfEither.render(markdown)
+      compareOutput(errors, example, n, '[cjk half either]', markdown, hcjk, entry.html)
+    }
+
+    if (example === 'cjkHalfEitherNormalize') {
+      const hcjk = mdCjkHalfEitherNormalize.render(markdown)
+      compareOutput(errors, example, n, '[cjk half either normalize]', markdown, hcjk, entry.html)
     }
   }
   return errors
