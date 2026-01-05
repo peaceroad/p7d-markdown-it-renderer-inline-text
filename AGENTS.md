@@ -11,7 +11,7 @@
   - `html_inline` / `html_block` renderers are wrapped when `insideHtml` is on and ruby/star conversion is enabled; wrappers restore original HTML after rendering.
 
 ## Rendering flow
-- `convertInlineText` coerces non-string `token.content` to a safe string, detects ruby triggers once, and avoids ruby-wrapper detection unless ruby markers are present.
+- `convertInlineText` coerces non-string `token.content` to a safe string, uses precomputed `rubyEnabled`/`starEnabled` flags, and short-circuits when inline-only ★ mode sees no ★/placeholder (or when both features are off).
 - When `starComment` is enabled, `convertStarComment` handles both ★ spans and ruby conversion so ruby output can be wrapped inside star comments.
 - When only ruby is enabled, `convertRubyKnown` runs only when the ruby trigger is present.
 - `escapeInlineHtml` runs after conversion when `<`, `>`, or `&` exists to keep inline text safe.

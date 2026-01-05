@@ -1,8 +1,8 @@
 const STAR_CHAR = '★'
+const ESCAPED_STAR_SEQ = '\\' + STAR_CHAR
 const STAR_PLACEHOLDER_CLOSE = '</span star-comment>'
 const STAR_COMMENT_LINE_META_KEY = 'starCommentLineDelete'
 const STAR_CHAR_CODE = STAR_CHAR.charCodeAt(0)
-const LINE_BREAK_TOKENS = new Set(['softbreak', 'hardbreak'])
 const INLINE_HTML_SPLIT_REGEXP = /(<[^>]+>)/g
 const INLINE_HTML_TAG_REGEXP = /^<\s*(\/)?\s*([A-Za-z][\w:-]*)/i
 const INLINE_HTML_SELF_CLOSE_REGEXP = /\/>\s*$/
@@ -192,8 +192,11 @@ const findListItemBounds = (tokens, inlineIdx) => {
 const findUsableStar = (text, start = 0) => {
   let position = text.indexOf(STAR_CHAR, start)
   while (position !== -1) {
-    if (!text.startsWith(STAR_PLACEHOLDER_CLOSE, position + 1)
-      && !isEscapedStar(text, position)) {
+    const nextIdx = position + 1
+    const isPlaceholder = nextIdx < text.length
+      && text.charCodeAt(nextIdx) === 60
+      && text.startsWith(STAR_PLACEHOLDER_CLOSE, nextIdx)
+    if (!isPlaceholder && !isEscapedStar(text, position)) {
       return position
     }
     position = text.indexOf(STAR_CHAR, position + 1)
@@ -225,8 +228,12 @@ const findUsableStarInToken = (token, start = 0) => {
   const text = token.content
   let position = text.indexOf(STAR_CHAR, start)
   while (position !== -1) {
+    const nextIdx = position + 1
+    const isPlaceholder = nextIdx < text.length
+      && text.charCodeAt(nextIdx) === 60
+      && text.startsWith(STAR_PLACEHOLDER_CLOSE, nextIdx)
     if (!isStarIndexReserved(token, position)
-      && !text.startsWith(STAR_PLACEHOLDER_CLOSE, position + 1)
+      && !isPlaceholder
       && !isEscapedStar(text, position)) {
       return position
     }
@@ -293,7 +300,8 @@ const isIgnoredStarLineToken = (token) => {
 
 const isLineBreakToken = (token) => {
   if (!token) return false
-  return LINE_BREAK_TOKENS.has(token.type)
+  const type = token.type
+  return type === 'softbreak' || type === 'hardbreak'
 }
 
 const findLastTextTokenIndex = (tokens, start, end) => {
@@ -638,14 +646,16 @@ const convertStarComment = (cont, tokens, idx, htmlEnabled, opt, rubyActive, rub
   }
 
   const hasStar = cont.indexOf(STAR_CHAR) !== -1
-  const hasPlaceholder = cont.indexOf(STAR_PLACEHOLDER_CLOSE) !== -1
+  const hasPlaceholder = hasInjectedClose || cont.indexOf(STAR_PLACEHOLDER_CLOSE) !== -1
   if (!hasStar && !hasPlaceholder) {
     return applyRubySegment(cont, rubyActive, rubyWrapperCache)
   }
+  const needsEscapedStarReplace = cont.indexOf(ESCAPED_STAR_SEQ) !== -1
 
   STAR_PAIR_REGEXP.lastIndex = 0
   let rebuilt = ''
   let cursor = 0
+  let needsPlaceholderReplace = hasPlaceholder
   let starMatch
 
   while ((starMatch = STAR_PAIR_REGEXP.exec(cont)) !== null) {
@@ -658,6 +668,7 @@ const convertStarComment = (cont, tokens, idx, htmlEnabled, opt, rubyActive, rub
     if (!opt.starCommentDelete) {
       const starBody = starMatch[0]
       rebuilt += '<span class="star-comment">' + starBody + STAR_PLACEHOLDER_CLOSE
+      needsPlaceholderReplace = true
     }
     cursor = starMatch.index + starMatch[0].length
   }
@@ -670,9 +681,13 @@ const convertStarComment = (cont, tokens, idx, htmlEnabled, opt, rubyActive, rub
     htmlEnabled,
   )
 
+  if (needsPlaceholderReplace) {
+    rebuilt = rebuilt.replace(STAR_PLACEHOLDER_CLOSE_REGEXP, '</span>')
+  }
+  if (needsEscapedStarReplace) {
+    rebuilt = rebuilt.replace(ESCAPED_STAR_REGEXP, STAR_CHAR)
+  }
   return rebuilt
-    .replace(STAR_PLACEHOLDER_CLOSE_REGEXP, '</span>')
-    .replace(ESCAPED_STAR_REGEXP, '★')
 }
 
 const convertStarCommentHtmlSegment = (segment, opt) => {
@@ -707,8 +722,8 @@ const convertStarCommentHtmlSegment = (segment, opt) => {
   return rebuilt
 }
 
-const convertStarCommentHtmlContent = (value, opt) => {
-  if (!value || value.indexOf(STAR_CHAR) === -1) return value
+const convertStarCommentHtmlContent = (value, opt, hasStar) => {
+  if (!value || !hasStar) return value
   if (value.indexOf('<') === -1) {
     return convertStarCommentHtmlSegment(value, opt)
   }
@@ -729,8 +744,8 @@ const convertStarCommentHtmlContent = (value, opt) => {
   return rebuilt
 }
 
-const convertRubyHtmlContent = (value) => {
-  if (!value || !RUBY_TRIGGER_REGEXP.test(value)) return value
+const convertRubyHtmlContent = (value, hasRubyTrigger) => {
+  if (!value || !hasRubyTrigger) return value
   RUBY_REGEXP.lastIndex = 0
   let replaced = false
   const converted = value.replace(RUBY_REGEXP, (match, openTag, base, reading, closeTag) => {
@@ -752,10 +767,10 @@ const convertHtmlTokenContent = (value, opt) => {
   if (!needsRuby && !needsStar) return value
   let converted = value
   if (needsRuby) {
-    converted = convertRubyHtmlContent(converted)
+    converted = convertRubyHtmlContent(converted, needsRuby)
   }
   if (needsStar) {
-    converted = convertStarCommentHtmlContent(converted, opt)
+    converted = convertStarCommentHtmlContent(converted, opt, needsStar)
   }
   return converted
 }
@@ -817,18 +832,36 @@ const hasNextStar = (tokens, idx, opt, htmlEnabled) => {
   return hasNextStarPos
 }
 
-const convertInlineText = (tokens, idx, options, opt) => {
+const convertInlineText = (tokens, idx, options, opt, rubyEnabled, starEnabled, starInlineOnly) => {
   let cont = tokens[idx].content
   if (typeof cont !== 'string') {
     cont = cont == null ? '' : String(cont)
   }
-  const rubyEnabled = !!opt.ruby
-  const starEnabled = !!opt.starComment
+  if (!rubyEnabled && !starEnabled) {
+    if (HTML_ENTITIES_REGEXP.test(cont)) {
+      return escapeInlineHtml(cont)
+    }
+    return cont
+  }
   const htmlEnabled = !!(options && options.html)
   const rubyActive = rubyEnabled && RUBY_TRIGGER_REGEXP.test(cont)
   const rubyWrapperCache = rubyActive && htmlEnabled
     ? detectRubyWrapper(tokens, idx)
     : false
+
+  if (starEnabled && starInlineOnly) {
+    const hasStar = cont.indexOf(STAR_CHAR) !== -1
+    const hasPlaceholder = cont.indexOf(STAR_PLACEHOLDER_CLOSE) !== -1
+    if (!hasStar && !hasPlaceholder) {
+      if (rubyEnabled && rubyActive) {
+        cont = convertRubyKnown(cont, rubyWrapperCache)
+      }
+      if (HTML_ENTITIES_REGEXP.test(cont)) {
+        cont = escapeInlineHtml(cont)
+      }
+      return cont
+    }
+  }
 
   if (starEnabled && htmlEnabled && !opt.insideHtml) {
     ensureInlineHtmlContext(tokens)
@@ -883,6 +916,10 @@ function rendererInlineText (md, option = {}) {
   md.__starCommentLineGlobalEnabled = !!opt.starCommentLine
   md.__starCommentParagraphDeleteEnabled = !!(opt.starCommentParagraph && opt.starCommentDelete)
 
+  const rubyEnabled = !!opt.ruby
+  const starEnabled = !!opt.starComment
+  const starInlineOnly = starEnabled && !opt.starCommentLine && !opt.starCommentParagraph
+
   const shouldConvertInsideHtml = opt.insideHtml && (opt.starComment || opt.ruby)
   if (shouldConvertInsideHtml) {
     const defaultHtmlInline = md.renderer.rules.html_inline
@@ -895,7 +932,7 @@ function rendererInlineText (md, option = {}) {
   }
 
   md.renderer.rules.text = (tokens, idx, options) => {
-    return convertInlineText(tokens, idx, options, opt)
+    return convertInlineText(tokens, idx, options, opt, rubyEnabled, starEnabled, starInlineOnly)
   }
 }
 
