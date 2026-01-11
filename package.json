@@ -10,13 +10,14 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node test/test.js"
+    "test": "node test/test.js",
+    "perf": "node test/material/perf.js"
   },
   "author": "peaceroad <peaceroad@gmail.com>",
   "repository": "https://github.com/peaceroad/p7d-markdown-it-renderer-inline-text",
   "license": "MIT",
   "devDependencies": {
-    "@peaceroad/markdown-it-cjk-breaks-mod": "^0.1.3",
+    "@peaceroad/markdown-it-cjk-breaks-mod": "^0.1.4",
     "@peaceroad/markdown-it-strong-ja": "^0.5.5",
     "markdown-it": "^14.1.0"
   }

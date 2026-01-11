@@ -21,6 +21,10 @@ const SUPPORTED_EXAMPLES = new Set([
   'starCommentLineParagraph',
   'starCommentHtml',
   'complex',
+  'percentComment',
+  'percentCommentOptions',
+  'percentCommentParagraph',
+  'percentCommentLine',
 ])
 
 const toCamelCase = (value) => {
@@ -78,11 +82,16 @@ const parseExampleContent = (content) => {
     return stripped ? stripped + '\n' : ''
   }
   entries.forEach((entry, idx) => {
+    const normalizedOutputs = {}
+    Object.keys(entry.outputs || {}).forEach((key) => {
+      normalizedOutputs[key] = normalize(entry.outputs[key])
+    })
     ms[idx + 1] = {
       markdown: normalize(entry.markdown),
-      html: normalize(entry.outputs.default),
-      htmlStarCommentDelete: normalize(entry.outputs.delete),
-      htmlStarCommentHtml: normalize(entry.outputs.html),
+      html: normalizedOutputs.default,
+      htmlStarCommentDelete: normalizedOutputs.delete,
+      htmlStarCommentHtml: normalizedOutputs.html,
+      outputs: normalizedOutputs,
     }
   })
   return ms
@@ -108,75 +117,91 @@ const check = (ms, example) => {
   const md = mdit().use(mdRendererInlineText, {
     ruby: true,
     starComment: true,
+    percentComment: true,
   })
   const mdWithHtml = mdit({ html: true }).use(mdRendererInlineText, {
     ruby: true,
     starComment: true,
+    percentComment: true,
   })
   const mdStarCommentDelete = mdit().use(mdRendererInlineText, {
     ruby: true,
     starComment: true,
+    percentComment: true,
     starCommentDelete: true,
   })
   const mdStarCommentDeleteWithHtml = mdit({ html: true }).use(mdRendererInlineText, {
     ruby: true,
     starComment: true,
+    percentComment: true,
     starCommentDelete: true,
   })
   const mdStarCommentParagraph = mdit().use(mdRendererInlineText, {
     starComment: true,
+    percentComment: true,
     starCommentParagraph: true,
   })
   const mdStarCommentParagraphWithHtml = mdit({ html: true }).use(mdRendererInlineText, {
     starComment: true,
+    percentComment: true,
     starCommentParagraph: true,
   })
   const mdStarCommentParagraphDelete = mdit().use(mdRendererInlineText, {
     starComment: true,
+    percentComment: true,
     starCommentParagraph: true,
     starCommentDelete: true,
   })
   const mdStarCommentParagraphDeleteWithHtml = mdit({ html: true }).use(mdRendererInlineText, {
     starComment: true,
+    percentComment: true,
     starCommentParagraph: true,
     starCommentDelete: true,
   })
   const mdStarCommentLine = mdit().use(mdRendererInlineText, {
     starComment: true,
+    percentComment: true,
     starCommentLine: true,
   })
   const mdStarCommentLineWithHtml = mdit({ html: true }).use(mdRendererInlineText, {
     starComment: true,
+    percentComment: true,
     starCommentLine: true,
   })
   const mdStarCommentLineParagraph = mdit().use(mdRendererInlineText, {
     starComment: true,
+    percentComment: true,
     starCommentLine: true,
     starCommentParagraph: true,
   })
   const mdStarCommentLineParagraphWithHtml = mdit({ html: true }).use(mdRendererInlineText, {
     starComment: true,
+    percentComment: true,
     starCommentLine: true,
     starCommentParagraph: true,
   })
   const mdStarCommentDeleteLine = mdit().use(mdRendererInlineText, {
     starComment: true,
+    percentComment: true,
     starCommentDelete: true,
     starCommentLine: true,
   })
   const mdStarCommentDeleteLineWithHtml = mdit({ html: true }).use(mdRendererInlineText, {
     starComment: true,
+    percentComment: true,
     starCommentDelete: true,
     starCommentLine: true,
   })
   const mdStarCommentDeleteLineParagraph = mdit().use(mdRendererInlineText, {
     starComment: true,
+    percentComment: true,
     starCommentDelete: true,
     starCommentLine: true,
     starCommentParagraph: true,
   })
   const mdStarCommentDeleteLineParagraphWithHtml = mdit({ html: true }).use(mdRendererInlineText, {
     starComment: true,
+    percentComment: true,
     starCommentDelete: true,
     starCommentLine: true,
     starCommentParagraph: true,
@@ -184,21 +209,61 @@ const check = (ms, example) => {
   const mdStarCommentHtmlInline = mdit({ html: true }).use(mdRendererInlineText, {
     ruby: true,
     starComment: true,
+    percentComment: true,
     insideHtml: true,
   })
   const mdStarCommentDeleteHtmlInline = mdit({ html: true }).use(mdRendererInlineText, {
     ruby: true,
     starComment: true,
+    percentComment: true,
     starCommentDelete: true,
     insideHtml: true,
+  })
+  const mdPercentCommentParagraph = mdit().use(mdRendererInlineText, {
+    percentComment: true,
+    percentCommentParagraph: true,
+  })
+  const mdPercentCommentParagraphWithHtml = mdit({ html: true }).use(mdRendererInlineText, {
+    percentComment: true,
+    percentCommentParagraph: true,
+  })
+  const mdPercentCommentParagraphDelete = mdit().use(mdRendererInlineText, {
+    percentComment: true,
+    percentCommentParagraph: true,
+    percentCommentDelete: true,
+  })
+  const mdPercentCommentParagraphDeleteWithHtml = mdit({ html: true }).use(mdRendererInlineText, {
+    percentComment: true,
+    percentCommentParagraph: true,
+    percentCommentDelete: true,
+  })
+  const mdPercentCommentLine = mdit().use(mdRendererInlineText, {
+    percentComment: true,
+    percentCommentLine: true,
+  })
+  const mdPercentCommentLineWithHtml = mdit({ html: true }).use(mdRendererInlineText, {
+    percentComment: true,
+    percentCommentLine: true,
+  })
+  const mdPercentCommentDeleteLine = mdit().use(mdRendererInlineText, {
+    percentComment: true,
+    percentCommentLine: true,
+    percentCommentDelete: true,
+  })
+  const mdPercentCommentDeleteLineWithHtml = mdit({ html: true }).use(mdRendererInlineText, {
+    percentComment: true,
+    percentCommentLine: true,
+    percentCommentDelete: true,
   })
   const mdCjkDefault = mdit().use(mdRendererInlineText, {
     ruby: true,
     starComment: true,
+    percentComment: true,
   }).use(cjkBreaks)
   const mdCjkHalfEither = mdit().use(mdRendererInlineText, {
     ruby: true,
     starComment: true,
+    percentComment: true,
   }).use(cjkBreaks, {
     spaceAfterPunctuation: 'half',
     either: true,
@@ -206,6 +271,7 @@ const check = (ms, example) => {
   const mdCjkHalfEitherNormalize = mdit().use(mdRendererInlineText, {
     ruby: true,
     starComment: true,
+    percentComment: true,
   }).use(cjkBreaks, {
     spaceAfterPunctuation: 'half',
     normalizeSoftBreaks: true,
@@ -217,6 +283,45 @@ const check = (ms, example) => {
     const entry = ms[n]
     if (!entry || entry.markdown === undefined) continue
     const markdown = entry.markdown
+
+    if (example === 'percentCommentOptions') {
+      const outputs = entry.outputs || {}
+      const mdOn = mdit().use(mdRendererInlineText, {
+        starComment: true,
+        percentComment: true,
+      })
+      const mdOff = mdit().use(mdRendererInlineText, {
+        starComment: true,
+        percentComment: false,
+      })
+      const mdDelete = mdit().use(mdRendererInlineText, {
+        starComment: true,
+        percentComment: true,
+        percentCommentDelete: true,
+      })
+      compareOutput(errors, example, n, '[percentComment:true]', markdown, mdOn.render(markdown), outputs.default)
+      compareOutput(errors, example, n, '[percentComment:false]', markdown, mdOff.render(markdown), outputs.disable)
+      compareOutput(errors, example, n, '[percentCommentDelete]', markdown, mdDelete.render(markdown), outputs.delete)
+      continue
+    }
+
+    if (example === 'percentCommentParagraph') {
+      const outputs = entry.outputs || {}
+      compareOutput(errors, example, n, '[paragraph HTML:false]', markdown, mdPercentCommentParagraph.render(markdown), outputs.default)
+      compareOutput(errors, example, n, '[paragraph HTML:true]', markdown, mdPercentCommentParagraphWithHtml.render(markdown), outputs.default)
+      compareOutput(errors, example, n, '[paragraphDelete HTML:false]', markdown, mdPercentCommentParagraphDelete.render(markdown), outputs.delete)
+      compareOutput(errors, example, n, '[paragraphDelete HTML:true]', markdown, mdPercentCommentParagraphDeleteWithHtml.render(markdown), outputs.delete)
+      continue
+    }
+
+    if (example === 'percentCommentLine') {
+      const outputs = entry.outputs || {}
+      compareOutput(errors, example, n, '[line HTML:false]', markdown, mdPercentCommentLine.render(markdown), outputs.default)
+      compareOutput(errors, example, n, '[line HTML:true]', markdown, mdPercentCommentLineWithHtml.render(markdown), outputs.default)
+      compareOutput(errors, example, n, '[lineDelete HTML:false]', markdown, mdPercentCommentDeleteLine.render(markdown), outputs.delete)
+      compareOutput(errors, example, n, '[lineDelete HTML:true]', markdown, mdPercentCommentDeleteLineWithHtml.render(markdown), outputs.delete)
+      continue
+    }
 
     if (example === 'ruby' || example === 'starComment' || example === 'complex') {
       const h = md.render(markdown)
@@ -311,6 +416,24 @@ for (const file of files) {
     errors.forEach((e) => console.log(e))
   }
   totalErrors += errors.length
+}
+
+// simple smoke tests for %% comments
+{
+  const mdPercent = mdit().use(mdRendererInlineText, {
+    starComment: true,
+    percentComment: true,
+  })
+  const rendered = mdPercent.render('前%%コメント%%後')
+  assert.strictEqual(rendered, '<p>前<span class="percent-comment">%%コメント%%</span>後</p>\n')
+
+  const mdPercentDelete = mdit().use(mdRendererInlineText, {
+    starComment: true,
+    percentComment: true,
+    starCommentDelete: true,
+  })
+  const renderedDelete = mdPercentDelete.render('前%%コメント%%後')
+  assert.strictEqual(renderedDelete, '<p>前後</p>\n')
 }
 
 if (totalErrors === 0) {

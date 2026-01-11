@@ -1,0 +1,28 @@
+[Markdown]
+%%先頭パーセント行です。
+通常行です。
+[HTML]
+<p><span class="percent-comment">%%先頭パーセント行です。</span>
+通常行です。</p>
+[HTML:delete]
+<p>通常行です。</p>
+
+[Markdown]
+通常行です。
+%%末尾パーセント行です。
+[HTML]
+<p>通常行です。
+<span class="percent-comment">%%末尾パーセント行です。</span></p>
+[HTML:delete]
+<p>通常行です。</p>
+
+[Markdown]
+%%一つ目
+%%二つ目
+通常行
+[HTML]
+<p><span class="percent-comment">%%一つ目</span>
+<span class="percent-comment">%%二つ目</span>
+通常行</p>
+[HTML:delete]
+<p>通常行</p>

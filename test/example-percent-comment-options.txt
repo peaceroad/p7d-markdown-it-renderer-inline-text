@@ -1,0 +1,8 @@
+[Markdown]
+前%%コメント%%後
+[HTML]
+<p>前<span class="percent-comment">%%コメント%%</span>後</p>
+[HTML:disable]
+<p>前%%コメント%%後</p>
+[HTML:delete]
+<p>前後</p>

@@ -1,0 +1,69 @@
+[Markdown]
+前%%コメント%%後
+[HTML]
+<p>前<span class="percent-comment">%%コメント%%</span>後</p>
+[HTML:delete]
+<p>前後</p>
+
+[Markdown]
+前%%コメント%%と%%二つ目%%後
+[HTML]
+<p>前<span class="percent-comment">%%コメント%%</span>と<span class="percent-comment">%%二つ目%%</span>後</p>
+[HTML:delete]
+<p>前後</p>
+
+[Markdown]
+%%先頭コメント%%後ろ
+[HTML]
+<p><span class="percent-comment">%%先頭コメント%%</span>後ろ</p>
+[HTML:delete]
+<p>後ろ</p>
+
+[Markdown]
+前%%コメント\%%後
+[HTML]
+<p>前%%コメント%%後</p>
+[HTML:delete]
+<p>前%%コメント%%後</p>
+
+[Markdown]
+前%%コメント\\%%後
+[HTML]
+<p>前<span class="percent-comment">%%コメント\%%</span>後</p>
+[HTML:delete]
+<p>前後</p>
+
+[Markdown]
+前%%コメント\\\%%後
+[HTML]
+<p>前%%コメント\\%%後</p>
+[HTML:delete]
+<p>前%%コメント\\%%後</p>
+
+[Markdown]
+前\\%%コメント%%後
+[HTML]
+<p>前\<span class="percent-comment">%%コメント%%</span>後</p>
+[HTML:delete]
+<p>前\後</p>
+
+[Markdown]
+前\\\%%コメント%%後
+[HTML]
+<p>前\\%%コメント%%後</p>
+[HTML:delete]
+<p>前\\%%コメント%%後</p>
+
+[Markdown]
+前\%%コメント%%後
+[HTML]
+<p>前%%コメント%%後</p>
+[HTML:delete]
+<p>前%%コメント%%後</p>
+
+[Markdown]
+前\\%%コメント\\%%後
+[HTML]
+<p>前\<span class="percent-comment">%%コメント\%%</span>後</p>
+[HTML:delete]
+<p>前\後</p>

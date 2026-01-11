@@ -2,8 +2,9 @@
 
 A markdown-it plugin. This plugin modify inline text of rendering HTML:
 
-- Ruby
-- Star comment
+- Ruby (漢字《かんじ》)
+- Star comment (`★コメント★`)
+- Percent comment (`%% Comment %%`)
 
 ## Install
 
@@ -20,9 +21,9 @@ npm i @peaceroad/markdown-it-renderer-inline-text
 
 ```js
 const md = require('markdown-it')
-const mdRendererInlineText = require('@peaceroad/markdown-it-renderer-inline-text')
+const mditRendererInlineText = require('@peaceroad/markdown-it-renderer-inline-text')
 
-md({html: true}).use(mdRendererInlineText, {ruby: true})
+md({html: true}).use(mditRendererInlineText, {ruby: true})
 
 console.log(md.render('この環境では超電磁砲《レールガン》を変換できます。');
 //<p>この環境では<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>を変換できます。</p>
@@ -73,7 +74,7 @@ Enable `insideHtml: true` yourself, or rely on the automatic toggle that happens
 
 ```js
 const md = require('markdown-it')
-const mdRendererInlineText = require('@peaceroad/markdown-it-renderer-inline-text')
+const mditRendererInlineText = require('@peaceroad/markdown-it-renderer-inline-text')
 
 md().use(mdRendererInlineText, {
   starComment: true,
@@ -88,13 +89,11 @@ console.log(md.render('スターは\★と書けばコメント扱いされま�
 
 Inline HTML such as `<span>★…★</span>` is ignored by default so you can safely mix handwritten markup. Enable `insideHtml: true` (with `md({ html: true })`), or simply pass `{ html: true }` to the plugin options (which automatically flips `insideHtml`) when you also want ★ comments or ruby markers that live inside inline HTML tags to be converted.
 
-### HTML tokens (`insideHtml`)
-
 ```js
 const md = require('markdown-it')
-const mdRendererInlineText = require('@peaceroad/markdown-it-renderer-inline-text')
+const mditRendererInlineText = require('@peaceroad/markdown-it-renderer-inline-text')
 
-md({html: true}).use(mdRendererInlineText, {
+md({html: true}).use(mditRendererInlineText, {
   starComment: true,
   ruby: true,
 })
@@ -151,7 +150,9 @@ md().use(mdRendererInlineText, {
 
 ### Escaping ★
 
-By using `\` before ★, it will be converted without making it a comment. However, if two or more `\` characters are used in succession, they will be converted differently from the Markdown specifications (for now). Details are below.
+Backslash escaping now mirrors Markdown: an odd number of `\` characters directly before ★ escapes it (one backslash is consumed), and an even number keeps the comment active while collapsing pairs of backslashes. `%` comment markers (`%%`) follow the same rules when enabled.
+
+Escape handling is captured during inline parsing before markdown-it's own escape rule runs, and backslash runs are cached per text token so counting escapes stays fast even on long lines.
 
 ```
 [Markdown]
@@ -162,12 +163,12 @@ By using `\` before ★, it will be converted without making it a comment. Howev
 [Markdown]
 文章中★のスターコメント\\★は処理されます。
 [HTML]
-<p>文章中★のスターコメント★は処理されます。</p>
+<p>文章中<span class="star-comment">★のスターコメント\★</span>は処理されます。</p>
 
 [Markdown]
 文章中★のスターコメント\\\★は処理されます。
 [HTML]
-<p>文章中<span class="star-comment">★のスターコメント\\★</span>は処理されます。</p>
+<p>文章中★のスターコメント\★は処理されます。</p>
 ```
 
 ### Delete star comment
@@ -194,3 +195,41 @@ console.log(md.render('★この段落はコメントとみなします。')
 Enable `starCommentLine: true` together with `starCommentDelete` when you want to drop entire ★ lines regardless of paragraph boundaries.
 List items that begin with ★ are also removed when `starCommentParagraph` runs with `starCommentDelete`, so comment-only bullets don’t leave empty markers.
 `insideHtml: true` works together with `starCommentDelete`, so ★ comments inside inline HTML (e.g. `<span>★…★</span>`) are removed as well when deletion is enabled.
+
+## Percent Comment
+
+Strings wrapped with `%%` become percent comments. They share the deletion flag with star comments: `percentCommentDelete: true` or `starCommentDelete: true` removes the wrapped text entirely, while `percentComment: false` leaves the raw markers unchanged. Customize the span class with `percentClass` (default: `percent-comment`). Inside inline HTML, percent markers are ignored unless `insideHtml` is on (set automatically when the plugin option includes `{ html: true }`).
+
+Paragraph-level percent comments are supported when `percentCommentParagraph: true`; if a paragraph starts with `%%`, the whole paragraph body is wrapped (or removed when deletion flags are on). Line-level percent comments are supported when `percentCommentLine: true`; any editor line starting with `%%` is wrapped (or removed under delete flags). Paragraph mode is ignored when line mode is on.
+
+```js
+md().use(mdRendererInlineText, {
+  starComment: true,
+  percentComment: true,
+})
+
+md({ html: true }).use(mdRendererInlineText, {
+  starComment: true,
+  percentComment: true,
+  percentCommentDelete: true, // also triggered by starCommentDelete
+})
+```
+
+Example:
+
+```
+[Markdown]
+前%%コメント%%後
+[HTML]
+<p>前<span class="percent-comment">%%コメント%%</span>後</p>
+
+[Markdown]
+前%%コメント%%後
+[HTML:delete]
+<p>前後</p>
+```
+
+## Testing and performance
+
+- Run all fixtures: `npm test`
+- Run the simple benchmark (env vars: `ITER`, `REPEAT`): `npm run perf`
