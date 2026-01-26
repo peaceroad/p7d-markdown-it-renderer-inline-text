@@ -6,10 +6,11 @@
 - Hooks are patched once per instance:
   - `md.renderer.rules.text` is replaced by `convertInlineText`.
   - `md.inline.ruler.before('escape', 'star_percent_escape_meta', applyEscapeMetaInlineRule)` captures backslash parity for ★/%% before markdown-it's escape rule runs (emits sentinels that normalize into token meta).
-  - `md.core.ruler.after('inline', 'star_comment_line_marker', ...)` runs when `starCommentLine` is enabled.
-  - `md.core.ruler.after('inline', 'star_comment_paragraph_delete', ...)` runs when `starCommentParagraph` + `starCommentDelete` are enabled.
-  - `md.core.ruler.after('inline', 'percent_comment_paragraph_delete', ...)` runs when `percentCommentParagraph` + (`percentCommentDelete` or `starCommentDelete`) are enabled.
-  - `md.core.ruler.after('inline', 'percent_comment_line_marker', ...)` runs when `percentCommentLine` is enabled.
+  - `safeCoreRule` inserts core rules after `text_join` or `cjk_breaks` when present (fallback: `inline`) to keep metadata stable.
+  - `safeCoreRule(... 'star_comment_line_marker' ...)` runs when `starCommentLine` is enabled.
+  - `safeCoreRule(... 'star_comment_paragraph_delete' ...)` runs when `starCommentParagraph` + `starCommentDelete` are enabled.
+  - `safeCoreRule(... 'percent_comment_paragraph_delete' ...)` runs when `percentCommentParagraph` + (`percentCommentDelete` or `starCommentDelete`) are enabled.
+  - `safeCoreRule(... 'percent_comment_line_marker' ...)` runs when `percentCommentLine` is enabled.
   - `md.renderer.rules.paragraph_open` / `paragraph_close` are wrapped only when delete mode needs to suppress wrappers.
   - `html_inline` / `html_block` renderers are wrapped when `insideHtml` is on and ruby/star/percent conversion is enabled; wrappers restore original HTML after rendering.
 

@@ -37,6 +37,33 @@ const detectRubyWrapper = (tokens, idx) => {
     && tokens[idx + 1].content === '</ruby>'
 }
 
+const getCoreRuleAnchor = (md) => {
+  if (!md || !md.core || !md.core.ruler || !md.core.ruler.__rules__) return null
+  const rules = md.core.ruler.__rules__
+  let anchor = null
+  let anchorIdx = -1
+  for (let i = 0; i < rules.length; i++) {
+    const name = rules[i].name
+    if (name === 'text_join' || name === 'cjk_breaks') {
+      if (i > anchorIdx) {
+        anchorIdx = i
+        anchor = name
+      }
+    }
+  }
+  return anchor
+}
+
+const safeCoreRule = (md, id, handler) => {
+  if (!md || !md.core || !md.core.ruler) return
+  const anchor = getCoreRuleAnchor(md)
+  if (anchor) {
+    md.core.ruler.after(anchor, id, handler)
+  } else {
+    md.core.ruler.after('inline', id, handler)
+  }
+}
+
 const ensureInlineHtmlContext = (tokens) => {
   if (!tokens || tokens.__inlineHtmlContextReady) return
   tokens.__inlineHtmlContextReady = true
@@ -695,7 +722,7 @@ const ensureStarCommentLineCore = (md) => {
   if (md.__starCommentLineCoreReady) return
   md.__starCommentLineCoreReady = true
 
-  md.core.ruler.after('inline', 'star_comment_line_marker', (state) => {
+  safeCoreRule(md, 'star_comment_line_marker', (state) => {
     if (!state.tokens || !state.tokens.length || !state.src) return
     if (state.src.indexOf(STAR_CHAR) === -1) return
     const cache = getStarCommentLineCache(md, state.src)
@@ -765,7 +792,7 @@ const ensurePercentCommentLineCore = (md) => {
   if (md.__percentCommentLineCoreReady) return
   md.__percentCommentLineCoreReady = true
 
-  md.core.ruler.after('inline', 'percent_comment_line_marker', (state) => {
+  safeCoreRule(md, 'percent_comment_line_marker', (state) => {
     if (!state.tokens || !state.tokens.length || !state.src) return
     if (state.src.indexOf(PERCENT_CHAR + PERCENT_CHAR) === -1) return
     const cache = getPercentCommentLineCache(md, state.src)
@@ -834,7 +861,7 @@ const ensureStarCommentParagraphDeleteCore = (md) => {
   if (md.__starCommentParagraphDeleteCoreReady) return
   md.__starCommentParagraphDeleteCoreReady = true
 
-  md.core.ruler.after('inline', 'star_comment_paragraph_delete', (state) => {
+  safeCoreRule(md, 'star_comment_paragraph_delete', (state) => {
     if (!md.__starCommentParagraphDeleteEnabled) return
     const tokens = state.tokens
     if (!tokens || !tokens.length) return
@@ -856,7 +883,7 @@ const ensurePercentCommentParagraphDeleteCore = (md) => {
   if (md.__percentCommentParagraphDeleteCoreReady) return
   md.__percentCommentParagraphDeleteCoreReady = true
 
-  md.core.ruler.after('inline', 'percent_comment_paragraph_delete', (state) => {
+  safeCoreRule(md, 'percent_comment_paragraph_delete', (state) => {
     if (!md.__percentCommentParagraphDeleteEnabled) return
     const tokens = state.tokens
     if (!tokens || !tokens.length) return
