@@ -9,7 +9,6 @@ const ACTIVE_STAR_SENTINEL = '\u0002'
 const ESCAPED_PERCENT_SENTINEL = '\u0003'
 const ACTIVE_PERCENT_SENTINEL = '\u0004'
 const PERCENT_COMMENT_LINE_META_KEY = 'percentCommentLineDelete'
-const INLINE_HTML_SPLIT_REGEXP = /(<[^>]+>)/g
 const INLINE_HTML_TAG_REGEXP = /^<\s*(\/)?\s*([A-Za-z][\w:-]*)/i
 const INLINE_HTML_SELF_CLOSE_REGEXP = /\/>\s*$/
 const INLINE_HTML_VOID_TAGS = new Set([
@@ -36,6 +35,115 @@ const detectRubyWrapper = (tokens, idx) => {
     && tokens[idx - 1].content === '<ruby>'
     && tokens[idx + 1].type === 'html_inline'
     && tokens[idx + 1].content === '</ruby>'
+}
+
+const walkHtmlSegments = (value, onText, onTag) => {
+  let start = 0
+  let i = 0
+  while (i < value.length) {
+    if (value.charCodeAt(i) !== 60) { // '<'
+      i++
+      continue
+    }
+    if (i > start) {
+      onText(value.slice(start, i))
+    }
+    let j = i + 1
+    let quote = 0
+    while (j < value.length) {
+      const ch = value.charCodeAt(j)
+      if (quote) {
+        if (ch === quote) quote = 0
+      } else if (ch === 34 || ch === 39) { // " or '
+        quote = ch
+      } else if (ch === 62) { // '>'
+        break
+      }
+      j++
+    }
+    if (j >= value.length) {
+      onText(value.slice(i))
+      return
+    }
+    onTag(value.slice(i, j + 1))
+    i = j + 1
+    start = i
+  }
+  if (start < value.length) {
+    onText(value.slice(start))
+  }
+}
+
+const walkHtmlSegmentsWithStack = (value, onText, onTag) => {
+  const stack = []
+  let rubyDepth = 0
+  let start = 0
+  let i = 0
+  while (i < value.length) {
+    if (value.charCodeAt(i) !== 60) { // '<'
+      i++
+      continue
+    }
+    if (i > start) {
+      onText(value.slice(start, i), rubyDepth > 0)
+    }
+    let j = i + 1
+    let quote = 0
+    while (j < value.length) {
+      const ch = value.charCodeAt(j)
+      if (quote) {
+        if (ch === quote) quote = 0
+      } else if (ch === 34 || ch === 39) { // " or '
+        quote = ch
+      } else if (ch === 62) { // '>'
+        break
+      }
+      j++
+    }
+    if (j >= value.length) {
+      onText(value.slice(i), rubyDepth > 0)
+      return
+    }
+    const tag = value.slice(i, j + 1)
+    onTag(tag)
+
+    const tagMatch = tag.match(INLINE_HTML_TAG_REGEXP)
+    if (tagMatch) {
+      const isClosing = !!tagMatch[1]
+      const tagName = tagMatch[2] ? tagMatch[2].toLowerCase() : ''
+      if (tagName) {
+        const isVoid = INLINE_HTML_VOID_TAGS.has(tagName)
+        let isSelfClosing = false
+        if (!isClosing && !isVoid) {
+          isSelfClosing = INLINE_HTML_SELF_CLOSE_REGEXP.test(tag)
+        }
+        if (isClosing) {
+          if (stack.length && stack[stack.length - 1] === tagName) {
+            const popped = stack.pop()
+            if (popped === 'ruby') rubyDepth--
+          } else {
+            const idx = stack.lastIndexOf(tagName)
+            if (idx !== -1) {
+              const removed = stack.splice(idx, 1)[0]
+              if (removed === 'ruby') rubyDepth--
+            } else if (stack.length) {
+              const popped = stack.pop()
+              if (popped === 'ruby') rubyDepth--
+            }
+          }
+        } else if (!isVoid && !isSelfClosing) {
+          stack.push(tagName)
+          if (tagName === 'ruby') rubyDepth++
+        }
+      }
+    }
+
+    i = j + 1
+    start = i
+  }
+  if (start < value.length) {
+    onText(value.slice(start), rubyDepth > 0)
+  }
 }
 
 const getCoreRuleAnchor = (md) => {
@@ -1269,20 +1377,12 @@ const convertStarCommentHtmlContent = (value, opt, hasStar) => {
   if (value.indexOf('<') === -1) {
     return convertStarCommentHtmlSegment(value, opt)
   }
-  let cursor = 0
   let rebuilt = ''
-  INLINE_HTML_SPLIT_REGEXP.lastIndex = 0
-  let match
-  while ((match = INLINE_HTML_SPLIT_REGEXP.exec(value)) !== null) {
-    if (match.index > cursor) {
-      rebuilt += convertStarCommentHtmlSegment(value.slice(cursor, match.index), opt)
-    }
-    rebuilt += match[0]
-    cursor = match.index + match[0].length
-  }
-  if (cursor < value.length) {
-    rebuilt += convertStarCommentHtmlSegment(value.slice(cursor), opt)
-  }
+  walkHtmlSegments(
+    value,
+    (segment) => { rebuilt += convertStarCommentHtmlSegment(segment, opt) },
+    (tag) => { rebuilt += tag },
+  )
   return rebuilt
 }
 
@@ -1295,37 +1395,30 @@ const convertPercentCommentHtmlContent = (value, opt) => {
   if (value.indexOf('<') === -1) {
     return convertPercentCommentHtmlSegment(value, opt)
   }
-  let cursor = 0
   let rebuilt = ''
-  INLINE_HTML_SPLIT_REGEXP.lastIndex = 0
-  let match
-  while ((match = INLINE_HTML_SPLIT_REGEXP.exec(value)) !== null) {
-    if (match.index > cursor) {
-      rebuilt += convertPercentCommentHtmlSegment(value.slice(cursor, match.index), opt)
-    }
-    rebuilt += match[0]
-    cursor = match.index + match[0].length
-  }
-  if (cursor < value.length) {
-    rebuilt += convertPercentCommentHtmlSegment(value.slice(cursor), opt)
-  }
+  walkHtmlSegments(
+    value,
+    (segment) => { rebuilt += convertPercentCommentHtmlSegment(segment, opt) },
+    (tag) => { rebuilt += tag },
+  )
   return rebuilt
 }
 
 const convertRubyHtmlContent = (value, hasRubyTrigger) => {
   if (!value || !hasRubyTrigger) return value
-  RUBY_REGEXP.lastIndex = 0
-  let replaced = false
-  const converted = value.replace(RUBY_REGEXP, (match, openTag, base, reading, closeTag) => {
-    if (!base || !reading) return match
-    if ((openTag && !closeTag) || (closeTag && !openTag)) return match
-    replaced = true
-    const rubyCont = base + '<rp>《</rp><rt>' + reading + '</rt><rp>》</rp>'
-    const opener = openTag || '<ruby>'
-    const closer = closeTag || '</ruby>'
-    return opener + rubyCont + closer
-  })
-  return replaced ? converted : value
+  let rebuilt = ''
+  walkHtmlSegmentsWithStack(
+    value,
+    (segment, insideRuby) => {
+      if (!segment || segment.indexOf('《') === -1) {
+        rebuilt += segment
+        return
+      }
+      rebuilt += convertRubyKnown(segment, insideRuby)
+    },
+    (tag) => { rebuilt += tag },
+  )
+  return rebuilt
 }
 
 const convertHtmlTokenContent = (value, opt) => {

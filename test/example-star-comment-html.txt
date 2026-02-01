@@ -83,3 +83,13 @@
 <p class="inline-html">HTML内の<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>にも<span class="star-comment">★スターコメント★</span>があります。</p>
 [HTML:delete]
 <p class="inline-html">HTML内の<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>にもがあります。</p>
+
+
+[Markdown]
+<p><a title=">★属性★">リンク★本文★</a>と漢字《かんじ》と%%パー%%。</p>
+[HTML]
+<p><a title=">★属性★">リンク★本文★</a>と漢字《かんじ》と%%パー%%。</p>
+[HTML:html]
+<p><a title=">★属性★">リンク<span class="star-comment">★本文★</span></a>と<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>と<span class="percent-comment">%%パー%%</span>。</p>
+[HTML:delete]
+<p><a title=">★属性★">リンク</a>と<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>と。</p>

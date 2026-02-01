@@ -52,13 +52,15 @@
 - For each inline block, the first non-empty line decides whether `STAR_COMMENT_LINE_META_KEY` is set; in line mode it requires all non-empty lines in the block to be ★ lines.
 
 ## Known concerns
-- `patchInlineRulerOrder` monkey-patches the core ruler’s `push/after/before` methods per instance; plugins that expect to override those methods may be affected.
+- HTML token splitting uses a lightweight scanner (not a full parser). It handles `>` inside quoted attributes, but malformed tags, comments, or edge-case HTML constructs may still confuse the split.
+- `patchInlineRulerOrder` monkey-patches the core ruler’s `push/after/before` methods per instance; plugins that expect to override those methods or force a later rule may be affected.
+- Paragraph delete mode wraps `paragraph_open`/`paragraph_close`; if another plugin replaces those renderers after this patch, the skip logic can be lost.
 - The inline-ruler rule is registered once per `markdown-it` instance; calling the plugin again with different options will not reconfigure the existing core rule.
 - Requires modern JS engines (Unicode property escapes + lookbehind in regex); older browsers without these features will not work.
 
 ## Performance notes
-- Use `node test/test-with-inline-tokens.js` for spot checks (env: `ITER`, `REPEAT`, `REPEAT_HEAVY`).
+- Use `node test/material/perf-inline-tokens.js` for spot checks (env: `ITER`, `REPEAT`, `REPEAT_HEAVY`).
 
 ## Tests
 - Full suite: `npm test`
-- Perf spot-check: `node test/test-with-inline-tokens.js`
+- Perf spot-check: `node test/material/perf-inline-tokens.js`

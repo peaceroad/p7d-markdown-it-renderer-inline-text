@@ -233,3 +233,4 @@ Example:
 
 - Run all fixtures: `npm test`
 - Run the simple benchmark (env vars: `ITER`, `REPEAT`): `npm run perf`
+- Run the inline-token benchmark (env vars: `ITER`, `REPEAT`, `REPEAT_HEAVY`): `node test/material/perf-inline-tokens.js`
