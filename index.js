@@ -1,9 +1,9 @@
 const STAR_CHAR = '★'
-const STAR_PLACEHOLDER_CLOSE = '</span star-comment>'
-const STAR_COMMENT_LINE_META_KEY = 'starCommentLineDelete'
 const STAR_CHAR_CODE = STAR_CHAR.charCodeAt(0)
+const STAR_COMMENT_LINE_META_KEY = 'starCommentLineDelete'
 const PERCENT_CHAR = '%'
 const PERCENT_CHAR_CODE = PERCENT_CHAR.charCodeAt(0)
+const PERCENT_MARKER = PERCENT_CHAR + PERCENT_CHAR
 const ESCAPED_STAR_SENTINEL = '\u0001'
 const ACTIVE_STAR_SENTINEL = '\u0002'
 const ESCAPED_PERCENT_SENTINEL = '\u0003'
@@ -12,22 +12,23 @@ const PERCENT_COMMENT_LINE_META_KEY = 'percentCommentLineDelete'
 const INLINE_HTML_SPLIT_REGEXP = /(<[^>]+>)/g
 const INLINE_HTML_TAG_REGEXP = /^<\s*(\/)?\s*([A-Za-z][\w:-]*)/i
 const INLINE_HTML_SELF_CLOSE_REGEXP = /\/>\s*$/
-// HTML void tags that never push onto the inline stack while scanning HTML spans
 const INLINE_HTML_VOID_TAGS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link',
   'meta', 'param', 'source', 'track', 'wbr',
 ])
-
 const RUBY_REGEXP_CONTENT = '(<ruby>)?([\\p{sc=Han}0-9A-Za-z.\\-_]+)《([^》]+?)》(<\\/ruby>)?'
 const RUBY_REGEXP = new RegExp(RUBY_REGEXP_CONTENT, 'ug')
-const RUBY_TRIGGER_REGEXP = /《/
-const STAR_PLACEHOLDER_CLOSE_REGEXP = /<\/span star-comment>/g
-const HTML_ENTITIES_REGEXP = /[<&>]/
 const HTML_AMP_REGEXP = /&/g
 const HTML_LT_NONTAG_REGEXP = /<(?!\/?[\w\s="/.':;#-\/\?]+>)/g
 const HTML_GT_NONTAG_REGEXP = /(?<!<\/?[\w\s="/.':;#-\/\?]+)>(?![^<]*>)/g
 const HTML_EMPTY_TAG_REGEXP = /<(\/?)>/g
 const HTML_SLASHED_TAG_REGEXP = /<([^>]+?\/[^>]+?)>/g
+
+const hasHtmlEntities = (value) => {
+  return value.indexOf('&') !== -1
+    || value.indexOf('<') !== -1
+    || value.indexOf('>') !== -1
+}
 
 const detectRubyWrapper = (tokens, idx) => {
   if (!tokens[idx - 1] || !tokens[idx + 1]) return false
@@ -61,6 +62,40 @@ const safeCoreRule = (md, id, handler) => {
     md.core.ruler.after(anchor, id, handler)
   } else {
     md.core.ruler.after('inline', id, handler)
+  }
+}
+
+const ensureInlineRulerLast = (md) => {
+  if (!md || !md.core || !md.core.ruler || !md.core.ruler.__rules__) return
+  const rules = md.core.ruler.__rules__
+  const idx = rules.findIndex((rule) => rule.name === 'inline_ruler_convert')
+  if (idx === -1 || idx === rules.length - 1) return
+  const [rule] = rules.splice(idx, 1)
+  rules.push(rule)
+}
+
+const patchInlineRulerOrder = (md) => {
+  if (!md || !md.core || !md.core.ruler) return
+  if (md.__inlineRulerOrderPatched) return
+  md.__inlineRulerOrderPatched = true
+  const ruler = md.core.ruler
+  const originalPush = ruler.push.bind(ruler)
+  const originalAfter = ruler.after.bind(ruler)
+  const originalBefore = ruler.before.bind(ruler)
+  ruler.push = (name, fn, options) => {
+    const result = originalPush(name, fn, options)
+    ensureInlineRulerLast(md)
+    return result
+  }
+  ruler.after = (afterName, name, fn, options) => {
+    const result = originalAfter(afterName, name, fn, options)
+    ensureInlineRulerLast(md)
+    return result
+  }
+  ruler.before = (beforeName, name, fn, options) => {
+    const result = originalBefore(beforeName, name, fn, options)
+    ensureInlineRulerLast(md)
+    return result
   }
 }
 
@@ -158,11 +193,7 @@ const getBackslashCountBefore = (text, index, meta) => {
 
 const normalizeEscapeSentinels = (text, token) => {
   if (!text) return text
-  if (token) {
-    token.meta = token.meta || {}
-    if (token.meta.__sentinelNormalized) return text
-    token.meta.__sentinelNormalized = true
-  }
+  if (token && token.meta && token.meta.__sentinelNormalized) return text
   const hasSentinel = text.indexOf(ESCAPED_STAR_SENTINEL) !== -1
     || text.indexOf(ACTIVE_STAR_SENTINEL) !== -1
     || text.indexOf(ESCAPED_PERCENT_SENTINEL) !== -1
@@ -170,6 +201,7 @@ const normalizeEscapeSentinels = (text, token) => {
   if (!hasSentinel) return text
 
   token.meta = token.meta || {}
+  token.meta.__sentinelNormalized = true
   const activeStars = token.meta.__forceActiveStars || (token.meta.__forceActiveStars = [])
   const escapedStars = token.meta.__forceEscapedStars || (token.meta.__forceEscapedStars = [])
   const activePercents = token.meta.__forceActivePercents || (token.meta.__forceActivePercents = [])
@@ -288,7 +320,7 @@ const applyEscapeMetaInlineRule = (state, silent) => {
       token.content = keepStr + sentinel + STAR_CHAR
     } else {
       const sentinel = escaped ? ESCAPED_PERCENT_SENTINEL : ACTIVE_PERCENT_SENTINEL
-      token.content = keepStr + sentinel + PERCENT_CHAR + PERCENT_CHAR
+      token.content = keepStr + sentinel + PERCENT_MARKER
     }
   }
 
@@ -429,110 +461,6 @@ const findListItemBounds = (tokens, inlineIdx) => {
   return null
 }
 
-const findUsableStar = (text, start = 0, token) => {
-  let position = text.indexOf(STAR_CHAR, start)
-  while (position !== -1) {
-    const nextIdx = position + 1
-    const isPlaceholder = nextIdx < text.length
-      && text.charCodeAt(nextIdx) === 60
-      && text.startsWith(STAR_PLACEHOLDER_CLOSE, nextIdx)
-    if (!isPlaceholder && !isEscapedStar(text, position, token)) {
-      return position
-    }
-    position = text.indexOf(STAR_CHAR, position + 1)
-  }
-  return -1
-}
-
-const isStarIndexReserved = (token, starIdx) => {
-  const meta = token && token.meta
-  const reserved = meta && meta.__starCommentReservedIdxs
-  return !!(reserved && reserved.indexOf(starIdx) !== -1)
-}
-
-const reserveStarIndex = (token, starIdx) => {
-  if (!token) return
-  token.meta = token.meta || {}
-  const reserved = token.meta.__starCommentReservedIdxs
-  if (reserved) {
-    if (reserved.indexOf(starIdx) === -1) {
-      reserved.push(starIdx)
-    }
-  } else {
-    token.meta.__starCommentReservedIdxs = [starIdx]
-  }
-}
-
-const findUsableStarInToken = (token, start = 0) => {
-  if (!token || typeof token.content !== 'string') return -1
-  const text = normalizeEscapeSentinels(token.content, token)
-  if (text !== token.content) {
-    token.content = text
-  }
-  let position = text.indexOf(STAR_CHAR, start)
-  while (position !== -1) {
-    const nextIdx = position + 1
-    const isPlaceholder = nextIdx < text.length
-      && text.charCodeAt(nextIdx) === 60
-      && text.startsWith(STAR_PLACEHOLDER_CLOSE, nextIdx)
-    if (!isStarIndexReserved(token, position)
-      && !isPlaceholder
-      && !isEscapedStar(text, position, token)) {
-      return position
-    }
-    position = text.indexOf(STAR_CHAR, position + 1)
-  }
-  return -1
-}
-
-const injectStarClosePlaceholders = (value, indices) => {
-  if (!indices || !indices.length) return value
-  let rebuilt = value
-  for (let i = indices.length - 1; i >= 0; i--) {
-    const idx = indices[i]
-    if (idx < 0 || idx >= value.length) continue
-    rebuilt = rebuilt.slice(0, idx + 1)
-      + STAR_PLACEHOLDER_CLOSE
-      + rebuilt.slice(idx + 1)
-  }
-  return rebuilt
-}
-
-const scrubToken = (token) => {
-  if (!token) return
-  token.hidden = true
-  token.content = ''
-  token.tag = ''
-  token.nesting = 0
-  if (token.type !== 'text') {
-    token.type = 'text'
-  }
-  token.meta = token.meta || {}
-  token.meta.__starCommentDelete = true
-}
-
-const escapeInlineHtml = (value) => {
-  let escaped = value
-  const hasAmp = escaped.indexOf('&') !== -1
-  const hasLt = escaped.indexOf('<') !== -1
-  const hasGt = escaped.indexOf('>') !== -1
-  if (hasAmp) {
-    escaped = escaped.replace(HTML_AMP_REGEXP, '&amp;')
-  }
-  if (hasLt) {
-    escaped = escaped.replace(HTML_LT_NONTAG_REGEXP, '&lt;')
-  }
-  if (hasGt) {
-    escaped = escaped.replace(HTML_GT_NONTAG_REGEXP, '&gt;')
-  }
-  if (hasLt) {
-    escaped = escaped
-      .replace(HTML_EMPTY_TAG_REGEXP, '&lt;$1&gt;')
-      .replace(HTML_SLASHED_TAG_REGEXP, '&lt;$1&gt;')
-  }
-  return escaped
-}
-
 const isIgnoredStarLineToken = (token) => {
   if (!token || !token.block || !token.map) return false
   if (token.type === 'code_block' || token.type === 'fence') return true
@@ -565,6 +493,19 @@ const suppressTokenOutput = (token) => {
   if (token.type !== 'text') {
     token.type = 'text'
   }
+}
+
+const scrubToken = (token) => {
+  if (!token) return
+  token.hidden = true
+  token.content = ''
+  token.tag = ''
+  token.nesting = 0
+  if (token.type !== 'text') {
+    token.type = 'text'
+  }
+  token.meta = token.meta || {}
+  token.meta.__starCommentDelete = true
 }
 
 const annotateStarLine = (tokens, start, end, breakIdx, opt) => {
@@ -648,10 +589,41 @@ const annotatePercentLine = (tokens, start, end, breakIdx, opt) => {
   }
 }
 
+const hasStarCommentLineCandidate = (tokens) => {
+  if (!tokens || !tokens.length || tokens.__starCommentLineGlobalProcessed) return false
+  if (tokens.__starCommentLineCandidate !== undefined) {
+    return tokens.__starCommentLineCandidate
+  }
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+    if (token && typeof token.content === 'string' && token.content.indexOf(STAR_CHAR) !== -1) {
+      tokens.__starCommentLineCandidate = true
+      return true
+    }
+  }
+  tokens.__starCommentLineCandidate = false
+  return false
+}
+
+const hasPercentCommentLineCandidate = (tokens) => {
+  if (!tokens || !tokens.length || tokens.__percentCommentLineGlobalProcessed) return false
+  if (tokens.__percentCommentLineCandidate !== undefined) {
+    return tokens.__percentCommentLineCandidate
+  }
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+    if (token && typeof token.content === 'string' && token.content.indexOf(PERCENT_MARKER) !== -1) {
+      tokens.__percentCommentLineCandidate = true
+      return true
+    }
+  }
+  tokens.__percentCommentLineCandidate = false
+  return false
+}
+
 const markStarCommentLineGlobal = (tokens, opt) => {
   if (tokens.__starCommentLineGlobalProcessed) return
   tokens.__starCommentLineGlobalProcessed = true
-
   const ignoredLines = tokens.__starCommentLineIgnoredLines
   const baseLine = tokens.__starCommentLineBaseLine
   let absoluteLine = typeof baseLine === 'number' ? baseLine : null
@@ -675,26 +647,9 @@ const markStarCommentLineGlobal = (tokens, opt) => {
   }
 }
 
-const hasPercentCommentLineCandidate = (tokens) => {
-  if (!tokens || !tokens.length || tokens.__percentCommentLineGlobalProcessed) return false
-  if (tokens.__percentCommentLineCandidate !== undefined) {
-    return tokens.__percentCommentLineCandidate
-  }
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i]
-    if (token && typeof token.content === 'string' && token.content.indexOf(PERCENT_CHAR + PERCENT_CHAR) !== -1) {
-      tokens.__percentCommentLineCandidate = true
-      return true
-    }
-  }
-  tokens.__percentCommentLineCandidate = false
-  return false
-}
-
 const markPercentCommentLineGlobal = (tokens, opt) => {
   if (tokens.__percentCommentLineGlobalProcessed) return
   tokens.__percentCommentLineGlobalProcessed = true
-
   const ignoredLines = tokens.__percentCommentLineIgnoredLines
   const baseLine = tokens.__percentCommentLineBaseLine
   let absoluteLine = typeof baseLine === 'number' ? baseLine : null
@@ -780,8 +735,6 @@ const ensureStarCommentLineCore = (md) => {
       }
     }
 
-    // Drop per-source cache after this render pass to avoid holding onto large
-    // source strings across renders while keeping same-run reuse intact.
     if (md.__starCommentLineCache && md.__starCommentLineCache.src === state.src) {
       md.__starCommentLineCache = null
     }
@@ -794,7 +747,7 @@ const ensurePercentCommentLineCore = (md) => {
 
   safeCoreRule(md, 'percent_comment_line_marker', (state) => {
     if (!state.tokens || !state.tokens.length || !state.src) return
-    if (state.src.indexOf(PERCENT_CHAR + PERCENT_CHAR) === -1) return
+    if (state.src.indexOf(PERCENT_MARKER) === -1) return
     const cache = getPercentCommentLineCache(md, state.src)
     let ignoredLines = null
     for (let i = 0; i < state.tokens.length; i++) {
@@ -850,7 +803,6 @@ const ensurePercentCommentLineCore = (md) => {
       }
     }
 
-    // Release per-source cache after use; recreated on the next render.
     if (md.__percentCommentLineCache && md.__percentCommentLineCache.src === state.src) {
       md.__percentCommentLineCache = null
     }
@@ -949,17 +901,271 @@ const ensureParagraphDeleteSupport = (md) => {
   patchParagraphRulesForStarLine(md)
 }
 
-const applyStrayStar = (segment, tokens, idx, opt, htmlEnabled) => {
-  const currentToken = tokens[idx]
-  const strayIndex = findUsableStar(segment, 0, currentToken)
-  if (strayIndex === -1) return segment
-  const hasNextStarPos = hasNextStar(tokens, idx, opt, htmlEnabled)
-  if (hasNextStarPos === -1) return segment
-  const starBeforeCont = segment.slice(0, strayIndex)
-  const starAfterCont = segment.slice(strayIndex + 1)
-  return opt.starCommentDelete
-    ? starBeforeCont
-    : starBeforeCont + '<span class="star-comment">★' + starAfterCont
+const addStarInsertion = (token, key, idx) => {
+  if (!token) return
+  token.meta = token.meta || {}
+  if (token.meta[key]) {
+    token.meta[key].push(idx)
+  } else {
+    token.meta[key] = [idx]
+  }
+}
+
+const addStarDeleteRange = (token, start, end) => {
+  if (!token) return
+  token.meta = token.meta || {}
+  const ranges = token.meta.__starDeleteRanges
+  if (ranges) {
+    ranges.push([start, end])
+  } else {
+    token.meta.__starDeleteRanges = [[start, end]]
+  }
+}
+
+const addStarDeleteOpen = (token, start) => {
+  if (!token) return
+  token.meta = token.meta || {}
+  const opens = token.meta.__starDeleteOpens
+  if (opens) {
+    opens.push(start)
+  } else {
+    token.meta.__starDeleteOpens = [start]
+  }
+}
+
+const addStarDeleteFrom = (token, start) => {
+  if (!token) return
+  token.meta = token.meta || {}
+  const list = token.meta.__starDeleteFroms
+  if (list) {
+    list.push(start)
+  } else {
+    token.meta.__starDeleteFroms = [start]
+  }
+}
+
+const addStarDeleteTo = (token, end) => {
+  if (!token) return
+  token.meta = token.meta || {}
+  const list = token.meta.__starDeleteTos
+  if (list) {
+    list.push(end)
+  } else {
+    token.meta.__starDeleteTos = [end]
+  }
+}
+
+const ensureStarPairInfo = (tokens, opt, htmlEnabled) => {
+  if (!tokens || tokens.__starPairInfoReady) return
+  tokens.__starPairInfoReady = true
+  const positions = []
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+    if (!token || token.hidden || token.type !== 'text') continue
+    if (opt.starCommentLine && token.meta && token.meta.__starLineGlobal) {
+      continue
+    }
+    if (htmlEnabled && !opt.insideHtml && token.meta && token.meta.__insideHtmlInline) {
+      continue
+    }
+    let content = token.content
+    if (typeof content !== 'string') {
+      content = content == null ? '' : String(content)
+    }
+    const normalized = normalizeEscapeSentinels(content, token)
+    if (normalized !== content) {
+      token.content = normalized
+      content = normalized
+    }
+    if (content.indexOf(STAR_CHAR) === -1) continue
+    const meta = token.meta || (token.meta = {})
+    if (!meta.__backslashLookup && content.indexOf('\\') !== -1) {
+      meta.__backslashLookup = createBackslashLookup(content)
+    }
+    let pos = content.indexOf(STAR_CHAR)
+    while (pos !== -1) {
+      if (!isEscapedStar(content, pos, token)) {
+        positions.push([i, pos])
+      }
+      pos = content.indexOf(STAR_CHAR, pos + 1)
+    }
+  }
+
+  if (positions.length < 2) return
+  for (let i = 0; i + 1 < positions.length; i += 2) {
+    const open = positions[i]
+    const close = positions[i + 1]
+    if (opt.starCommentDelete) {
+      addStarDeleteOpen(tokens[open[0]], open[1])
+      if (open[0] === close[0]) {
+        addStarDeleteRange(tokens[open[0]], open[1], close[1])
+      } else {
+        addStarDeleteFrom(tokens[open[0]], open[1])
+        addStarDeleteTo(tokens[close[0]], close[1])
+        for (let j = open[0] + 1; j < close[0]; j++) {
+          scrubToken(tokens[j])
+        }
+      }
+    } else {
+      addStarInsertion(tokens[open[0]], '__starOpenPositions', open[1])
+      addStarInsertion(tokens[close[0]], '__starClosePositions', close[1])
+    }
+  }
+}
+
+const applyStarInsertionsWithRuby = (value, token, rubyActive, hasRubyWrapper, starOpen) => {
+  const meta = token && token.meta
+  const openList = meta && meta.__starOpenPositions ? meta.__starOpenPositions : []
+  const closeList = meta && meta.__starClosePositions ? meta.__starClosePositions : []
+  if (!openList.length && !closeList.length && !starOpen) {
+    return { value, changed: false, starOpen: false }
+  }
+
+  const forcedActive = meta && meta.__forceActiveStars
+  let openIdx = 0
+  let closeIdx = 0
+  let cursor = 0
+  let rebuilt = ''
+  let inside = !!starOpen
+
+  while (openIdx < openList.length || closeIdx < closeList.length) {
+    const nextOpen = openIdx < openList.length ? openList[openIdx] : Infinity
+    const nextClose = closeIdx < closeList.length ? closeList[closeIdx] : Infinity
+
+    if (inside) {
+      if (nextClose === Infinity) break
+      rebuilt += value.slice(cursor, nextClose + 1)
+      rebuilt += '</span>'
+      cursor = nextClose + 1
+      closeIdx++
+      inside = false
+      continue
+    }
+
+    if (nextOpen === Infinity) break
+    const shouldKeepEscapes = forcedActive && forcedActive.indexOf(nextOpen) !== -1
+    const startEscapes = shouldKeepEscapes ? 0 : getBackslashCountBefore(value, nextOpen, meta)
+    let segment = value.slice(cursor, nextOpen - startEscapes)
+    if (rubyActive && segment.indexOf('《') !== -1) {
+      segment = convertRubyKnown(segment, hasRubyWrapper)
+    }
+    rebuilt += segment
+    if (startEscapes) {
+      const keptStartEscapes = Math.floor(startEscapes / 2)
+      if (keptStartEscapes > 0) rebuilt += '\\'.repeat(keptStartEscapes)
+    }
+    rebuilt += '<span class="star-comment">'
+    cursor = nextOpen
+    openIdx++
+    inside = true
+  }
+
+  if (cursor < value.length) {
+    let tail = value.slice(cursor)
+    if (!inside && rubyActive && tail.indexOf('《') !== -1) {
+      tail = convertRubyKnown(tail, hasRubyWrapper)
+    }
+    rebuilt += tail
+  }
+
+  return { value: rebuilt, changed: true, starOpen: inside }
+}
+
+const applyStarDeletes = (value, token) => {
+  const meta = token && token.meta
+  const ranges = meta && meta.__starDeleteRanges ? meta.__starDeleteRanges : null
+  const froms = meta && meta.__starDeleteFroms ? meta.__starDeleteFroms : null
+  const tos = meta && meta.__starDeleteTos ? meta.__starDeleteTos : null
+  const opens = meta && meta.__starDeleteOpens ? meta.__starDeleteOpens : null
+  const forcedActive = meta && meta.__forceActiveStars ? meta.__forceActiveStars : null
+  if (!ranges && !froms && !tos) return { value, changed: false }
+
+  const limit = value.length
+  const collected = []
+  if (ranges) {
+    for (const range of ranges) {
+      if (!range || range.length < 2) continue
+      const start = Math.max(0, range[0])
+      const end = Math.min(limit - 1, range[1])
+      if (start <= end) collected.push([start, end])
+    }
+  }
+  if (froms) {
+    for (const start of froms) {
+      const from = Math.max(0, start)
+      if (from < limit) collected.push([from, limit - 1])
+    }
+  }
+  if (tos) {
+    for (const end of tos) {
+      const to = Math.min(limit - 1, end)
+      if (to >= 0) collected.push([0, to])
+    }
+  }
+  if (!collected.length) return { value, changed: false }
+
+  collected.sort((a, b) => a[0] - b[0])
+  const merged = []
+  for (const range of collected) {
+    if (!merged.length) {
+      merged.push([range[0], range[1]])
+      continue
+    }
+    const last = merged[merged.length - 1]
+    if (range[0] <= last[1] + 1) {
+      if (range[1] > last[1]) last[1] = range[1]
+    } else {
+      merged.push([range[0], range[1]])
+    }
+  }
+
+  const openSet = opens ? new Set(opens) : null
+  let rebuilt = ''
+  let cursor = 0
+  for (const range of merged) {
+    const start = range[0]
+    const end = range[1]
+    if (start > cursor) {
+      let segment = value.slice(cursor, start)
+      if (openSet && openSet.has(start) && !(forcedActive && forcedActive.indexOf(start) !== -1)) {
+        const startEscapes = getBackslashCountBefore(value, start, meta)
+        if (startEscapes) {
+          segment = segment.slice(0, segment.length - startEscapes)
+          const keptStartEscapes = Math.floor(startEscapes / 2)
+          if (keptStartEscapes > 0) segment += '\\'.repeat(keptStartEscapes)
+        }
+      }
+      rebuilt += segment
+    }
+    cursor = end + 1
+  }
+  if (cursor < value.length) {
+    rebuilt += value.slice(cursor)
+  }
+  return { value: rebuilt, changed: true }
+}
+
+const escapeInlineHtml = (value) => {
+  let escaped = value
+  const hasAmp = escaped.indexOf('&') !== -1
+  const hasLt = escaped.indexOf('<') !== -1
+  const hasGt = escaped.indexOf('>') !== -1
+  if (hasAmp) {
+    escaped = escaped.replace(HTML_AMP_REGEXP, '&amp;')
+  }
+  if (hasLt) {
+    escaped = escaped.replace(HTML_LT_NONTAG_REGEXP, '&lt;')
+  }
+  if (hasGt) {
+    escaped = escaped.replace(HTML_GT_NONTAG_REGEXP, '&gt;')
+  }
+  if (hasLt) {
+    escaped = escaped
+      .replace(HTML_EMPTY_TAG_REGEXP, '&lt;$1&gt;')
+      .replace(HTML_SLASHED_TAG_REGEXP, '&lt;$1&gt;')
+  }
+  return escaped
 }
 
 const convertRubyKnown = (cont, hasRubyWrapper) => {
@@ -976,249 +1182,47 @@ const convertRubyKnown = (cont, hasRubyWrapper) => {
   return replaced ? converted : cont
 }
 
-const applyRubySegment = (value, rubyActive, hasRubyWrapper) => {
-  if (!rubyActive) return value
-  return convertRubyKnown(value, hasRubyWrapper)
-}
-
-const hasStarCommentLineCandidate = (tokens) => {
-  if (!tokens || !tokens.length || tokens.__starCommentLineGlobalProcessed) return false
-  if (tokens.__starCommentLineCandidate !== undefined) {
-    return tokens.__starCommentLineCandidate
-  }
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i]
-    if (token && typeof token.content === 'string' && token.content.indexOf(STAR_CHAR) !== -1) {
-      tokens.__starCommentLineCandidate = true
-      return true
-    }
-  }
-  tokens.__starCommentLineCandidate = false
-  return false
-}
-
-const convertStarComment = (cont, tokens, idx, htmlEnabled, opt, rubyActive, rubyWrapperCache) => {
-  const isParagraphStar = opt.starCommentParagraph && isStarCommentParagraph(tokens)
-  const currentToken = tokens[idx]
-  const insideInlineHtml = htmlEnabled && !opt.insideHtml
-    && currentToken
-    && currentToken.meta
-    && currentToken.meta.__insideHtmlInline
-  let meta = currentToken && currentToken.meta
-  const hasInjectedClose = !!(meta && meta.__starCommentInjectedCloseAt && meta.__starCommentInjectedCloseAt.length)
-  if (meta && meta.__starCommentDelete) {
-    return ''
-  }
-  if (meta && typeof meta.__starCommentDeleteFrom === 'number') {
-    cont = cont.slice(meta.__starCommentDeleteFrom)
-  }
-  if (hasInjectedClose) {
-    cont = injectStarClosePlaceholders(cont, meta.__starCommentInjectedCloseAt)
-  }
-
-  if (insideInlineHtml && !isParagraphStar) {
-    let processed = applyRubySegment(cont, rubyActive, rubyWrapperCache)
-    if (hasInjectedClose) {
-      processed = processed.replace(STAR_PLACEHOLDER_CLOSE_REGEXP, '</span>')
-    }
-    return processed
-  }
-
-  if (opt.starCommentLine) {
-    if (!tokens.__starCommentLineGlobalProcessed && hasStarCommentLineCandidate(tokens)) {
-      markStarCommentLineGlobal(tokens, opt)
-    }
-    meta = currentToken && currentToken.meta
-    if (meta && meta.__starLineGlobal) {
-      if (opt.starCommentDelete) {
-        return ''
-      }
-      let processed = applyRubySegment(cont, rubyActive, rubyWrapperCache)
-      if (meta.__starLineGlobalStart) {
-        processed = '<span class="star-comment">' + processed
-      }
-      if (meta.__starLineGlobalEnd) {
-        processed += '</span>'
-      }
-      if (hasInjectedClose) {
-        processed = processed.replace(STAR_PLACEHOLDER_CLOSE_REGEXP, '</span>')
-      }
-      return processed
-    }
-  }
-
-  if (isParagraphStar) {
-    if (opt.starCommentDelete) {
-      tokens.__starCommentParagraphDelete = true
-    }
-    if (idx === 0) {
-      if (opt.starCommentDelete) {
-        hideInlineTokensAfter(tokens, idx + 1)
-        return ''
-      } else {
-        cont = '<span class="star-comment">' + applyRubySegment(cont, rubyActive, rubyWrapperCache)
-        if (tokens.length === 1) cont += '</span>'
-      }
-      if (hasInjectedClose) {
-        cont = cont.replace(STAR_PLACEHOLDER_CLOSE_REGEXP, '</span>')
-      }
-      return cont
-    }
-
-    if (opt.starCommentDelete) {
-      hideInlineTokensAfter(tokens, idx + 1)
-      return ''
-    }
-
-    let processed = applyRubySegment(cont, rubyActive, rubyWrapperCache)
-    if (hasInjectedClose) {
-      processed = processed.replace(STAR_PLACEHOLDER_CLOSE_REGEXP, '</span>')
-    }
-    if (idx === tokens.length - 1) return processed + '</span>'
-    return processed
-  }
-
-  const hasStar = cont.indexOf(STAR_CHAR) !== -1
-  const hasPlaceholder = hasInjectedClose || cont.indexOf(STAR_PLACEHOLDER_CLOSE) !== -1
-  const backslashLookup = meta && meta.__backslashLookup
-    ? meta.__backslashLookup
-    : (cont.indexOf('\\') !== -1 ? createBackslashLookup(cont) : null)
-  if (meta && backslashLookup && !meta.__backslashLookup) {
-    meta.__backslashLookup = backslashLookup
-  }
-  if (!hasStar && !hasPlaceholder) {
-    return applyRubySegment(cont, rubyActive, rubyWrapperCache)
-  }
+const convertPercentCommentInlineSegment = (segment, opt, token) => {
+  if (!segment || segment.indexOf(PERCENT_MARKER) === -1) return segment
+  const deleteMode = opt.percentCommentDelete || opt.starCommentDelete
+  const cls = opt.percentClass || 'percent-comment'
+  const backslashLookup = segment.indexOf('\\') !== -1 ? createBackslashLookup(segment) : null
+  const getEscapesBefore = backslashLookup
+    ? (idx) => backslashLookup(idx)
+    : (idx) => countBackslashesBefore(segment, idx)
   let rebuilt = ''
   let cursor = 0
-  let needsPlaceholderReplace = hasPlaceholder
-  const unescapedStars = []
-  const injectedClose = meta && meta.__starCommentInjectedCloseAt
-  for (let i = 0; i < cont.length; i++) {
-    if (cont.charCodeAt(i) !== STAR_CHAR_CODE) continue
-    if (isStarIndexReserved(currentToken, i)) continue
-    if (injectedClose && injectedClose.indexOf(i) !== -1) continue
-    if (!isEscapedStar(cont, i, currentToken)) {
-      unescapedStars.push(i)
-    }
-  }
+  let openIdx = -1
 
-  for (let i = 0; i + 1 < unescapedStars.length; i += 2) {
-    const startIdx = unescapedStars[i]
-    const endIdx = unescapedStars[i + 1]
-    const shouldKeepEscapes = meta
-      && meta.__forceActiveStars
-      && meta.__forceActiveStars.indexOf(startIdx) !== -1
-    const startEscapes = shouldKeepEscapes
-      ? 0
-      : getBackslashCountBefore(cont, startIdx, meta)
-    const segmentBefore = applyRubySegment(
-      cont.slice(cursor, startIdx - startEscapes),
-      rubyActive,
-      rubyWrapperCache,
-    )
+  for (let i = 0; i < segment.length - 1; i++) {
+    if (segment[i] !== PERCENT_CHAR || segment[i + 1] !== PERCENT_CHAR) continue
+    if (isEscapedPercent(segment, i, token)) continue
+    if (openIdx === -1) {
+      openIdx = i
+      i++
+      continue
+    }
+    const startEscapes = getEscapesBefore(openIdx)
     const keptStartEscapes = startEscapes ? '\\'.repeat(Math.floor(startEscapes / 2)) : ''
-    rebuilt += applyStrayStar(segmentBefore + keptStartEscapes, tokens, idx, opt, htmlEnabled)
-    if (!opt.starCommentDelete) {
-      const starBody = cont.slice(startIdx, endIdx + 1)
-      rebuilt += '<span class="star-comment">' + starBody + STAR_PLACEHOLDER_CLOSE
-      needsPlaceholderReplace = true
+    rebuilt += segment.slice(cursor, openIdx - startEscapes) + keptStartEscapes
+    if (!deleteMode) {
+      rebuilt += '<span class="' + cls + '">' + segment.slice(openIdx, i + 2) + '</span>'
     }
-    cursor = endIdx + 1
-  }
-
-  rebuilt += applyStrayStar(
-    applyRubySegment(cont.slice(cursor), rubyActive, rubyWrapperCache),
-    tokens,
-    idx,
-    opt,
-    htmlEnabled,
-  )
-
-  if (needsPlaceholderReplace) {
-    rebuilt = rebuilt.replace(STAR_PLACEHOLDER_CLOSE_REGEXP, '</span>')
-  }
-  const hasForceActiveStar = meta && meta.__forceActiveStars && meta.__forceActiveStars.length
-  if (!hasForceActiveStar) {
-    rebuilt = collapseMarkerEscapes(rebuilt, STAR_CHAR)
-  }
-  return rebuilt
-}
-
-const convertPercentLineIfNeeded = (cont, tokens, idx, htmlEnabled, opt, needsPercent, insideInlineHtml) => {
-  if (!opt.percentCommentLine) return { cont, handled: false }
-  if (!tokens.__percentCommentLineGlobalProcessed && hasPercentCommentLineCandidate(tokens)) {
-    markPercentCommentLineGlobal(tokens, opt)
-  }
-  const meta = tokens[idx] && tokens[idx].meta
-  if (!meta || !meta.__percentLineGlobal) return { cont, handled: false }
-
-  if (insideInlineHtml && !opt.insideHtml) {
-    return { cont, handled: true }
-  }
-
-  if (opt.percentCommentDelete || opt.starCommentDelete) {
-    return { cont: '', handled: true }
-  }
-
-  let processed = cont
-  if (needsPercent) {
-    processed = convertPercentComment(processed, opt, tokens[idx])
-  }
-  const cls = opt.percentClass || 'percent-comment'
-  if (meta.__percentLineGlobalStart) {
-    processed = '<span class="' + cls + '">' + processed
-  }
-  if (meta.__percentLineGlobalEnd) {
-    processed += '</span>'
-  }
-  return { cont: processed, handled: true }
-}
-
-const convertPercentComment = (cont, opt, token) => {
-  if (!cont || cont.indexOf(PERCENT_CHAR + PERCENT_CHAR) === -1) return cont
-  const deleteMode = opt.percentCommentDelete || opt.starCommentDelete
-  const meta = token && token.meta
-  const backslashLookup = meta && meta.__backslashLookup
-    ? meta.__backslashLookup
-    : (cont.indexOf('\\') !== -1 ? createBackslashLookup(cont) : null)
-  if (meta && backslashLookup && !meta.__backslashLookup) {
-    meta.__backslashLookup = backslashLookup
-  }
-  const percentMarkers = []
-  for (let i = 0; i < cont.length - 1; i++) {
-    if (cont[i] !== PERCENT_CHAR || cont[i + 1] !== PERCENT_CHAR) continue
-    if (!isEscapedPercent(cont, i, token)) {
-      percentMarkers.push(i)
-    }
+    cursor = i + 2
+    openIdx = -1
     i++
   }
 
-  let rebuilt = ''
-  let cursor = 0
-  for (let i = 0; i + 1 < percentMarkers.length; i += 2) {
-    const startIdx = percentMarkers[i]
-    const endIdx = percentMarkers[i + 1]
-    const shouldKeepEscapes = token
-      && token.meta
-      && token.meta.__forceActivePercents
-      && token.meta.__forceActivePercents.indexOf(startIdx) !== -1
-    const startEscapes = shouldKeepEscapes
-      ? 0
-      : getBackslashCountBefore(cont, startIdx, meta)
-    const keptStartEscapes = startEscapes ? '\\'.repeat(Math.floor(startEscapes / 2)) : ''
-    rebuilt += cont.slice(cursor, startIdx - startEscapes) + keptStartEscapes
-    if (!deleteMode) {
-      const cls = opt.percentClass || 'percent-comment'
-      rebuilt += '<span class="' + cls + '">' + cont.slice(startIdx, endIdx + 2) + '</span>'
-    }
-    cursor = endIdx + 2
+  if (openIdx !== -1) {
+    rebuilt += segment.slice(cursor, openIdx)
+    cursor = openIdx
   }
-
-  rebuilt += cont.slice(cursor)
-  const hasForceActivePercent = meta && meta.__forceActivePercents && meta.__forceActivePercents.length
+  if (cursor < segment.length) {
+    rebuilt += segment.slice(cursor)
+  }
+  const hasForceActivePercent = token && token.meta && token.meta.__forceActivePercents && token.meta.__forceActivePercents.length
   if (!hasForceActivePercent) {
-    rebuilt = collapseMarkerEscapes(rebuilt, PERCENT_CHAR + PERCENT_CHAR)
+    return collapseMarkerEscapes(rebuilt, PERCENT_MARKER)
   }
   return rebuilt
 }
@@ -1235,14 +1239,13 @@ const convertStarCommentHtmlSegment = (segment, opt) => {
 
   for (let i = 0; i < segment.length; i++) {
     if (segment.charCodeAt(i) !== STAR_CHAR_CODE) continue
-    if (segment.startsWith(STAR_PLACEHOLDER_CLOSE, i + 1)) continue
     if (isEscapedStar(segment, i)) continue
     if (openIdx === -1) {
       openIdx = i
       continue
     }
     const startEscapes = getEscapesBefore(openIdx)
-    const keptStartEscapes = startEscapes ? '\\'.repeat(startEscapes / 2) : ''
+    const keptStartEscapes = startEscapes ? '\\'.repeat(Math.floor(startEscapes / 2)) : ''
     rebuilt += segment.slice(cursor, openIdx - startEscapes) + keptStartEscapes
     if (!opt.starCommentDelete) {
       rebuilt += '<span class="star-comment">' + segment.slice(openIdx, i + 1) + '</span>'
@@ -1284,48 +1287,11 @@ const convertStarCommentHtmlContent = (value, opt, hasStar) => {
 }
 
 const convertPercentCommentHtmlSegment = (segment, opt) => {
-  if (!segment || segment.indexOf(PERCENT_CHAR + PERCENT_CHAR) === -1) return segment
-  const deleteMode = opt.percentCommentDelete || opt.starCommentDelete
-  const cls = opt.percentClass || 'percent-comment'
-  const backslashLookup = segment.indexOf('\\') !== -1 ? createBackslashLookup(segment) : null
-  const getEscapesBefore = backslashLookup
-    ? (idx) => backslashLookup(idx)
-    : (idx) => countBackslashesBefore(segment, idx)
-  let rebuilt = ''
-  let cursor = 0
-  let openIdx = -1
-
-  for (let i = 0; i < segment.length - 1; i++) {
-    if (segment[i] !== PERCENT_CHAR || segment[i + 1] !== PERCENT_CHAR) continue
-    if (isEscapedPercent(segment, i)) continue
-    if (openIdx === -1) {
-      openIdx = i
-      i++
-      continue
-    }
-    const startEscapes = getEscapesBefore(openIdx)
-    const keptStartEscapes = startEscapes ? '\\'.repeat(startEscapes / 2) : ''
-    rebuilt += segment.slice(cursor, openIdx - startEscapes) + keptStartEscapes
-    if (!deleteMode) {
-      rebuilt += '<span class="' + cls + '">' + segment.slice(openIdx, i + 2) + '</span>'
-    }
-    cursor = i + 2
-    openIdx = -1
-    i++
-  }
-
-  if (openIdx !== -1) {
-    rebuilt += segment.slice(cursor, openIdx)
-    cursor = openIdx
-  }
-  if (cursor < segment.length) {
-    rebuilt += segment.slice(cursor)
-  }
-  return collapseMarkerEscapes(rebuilt, PERCENT_CHAR + PERCENT_CHAR)
+  return convertPercentCommentInlineSegment(segment, opt, null)
 }
 
 const convertPercentCommentHtmlContent = (value, opt) => {
-  if (!value || value.indexOf(PERCENT_CHAR + PERCENT_CHAR) === -1) return value
+  if (!value || value.indexOf(PERCENT_MARKER) === -1) return value
   if (value.indexOf('<') === -1) {
     return convertPercentCommentHtmlSegment(value, opt)
   }
@@ -1364,9 +1330,9 @@ const convertRubyHtmlContent = (value, hasRubyTrigger) => {
 
 const convertHtmlTokenContent = (value, opt) => {
   if (!value) return value
-  const needsRuby = opt.ruby && RUBY_TRIGGER_REGEXP.test(value)
+  const needsRuby = opt.ruby && value.indexOf('《') !== -1
   const needsStar = opt.starComment && value.indexOf(STAR_CHAR) !== -1
-  const needsPercent = opt.percentComment && value.indexOf(PERCENT_CHAR + PERCENT_CHAR) !== -1
+  const needsPercent = opt.percentComment && value.indexOf(PERCENT_MARKER) !== -1
   if (!needsRuby && !needsStar && !needsPercent) return value
   let converted = value
   if (needsRuby) {
@@ -1381,162 +1347,237 @@ const convertHtmlTokenContent = (value, opt) => {
   return converted
 }
 
-const createHtmlTokenWrapper = (defaultRenderer, opt) => {
-  return (tokens, idx, options, env, self) => {
-    const token = tokens[idx]
-    const original = token && token.content ? token.content : ''
-    if (!original) {
-      return defaultRenderer(tokens, idx, options, env, self)
-    }
-    const converted = convertHtmlTokenContent(original, opt)
-    if (converted === original) {
-      return defaultRenderer(tokens, idx, options, env, self)
-    }
-    token.content = converted
-    const rendered = defaultRenderer(tokens, idx, options, env, self)
-    token.content = original
-    return rendered
-  }
-}
+const convertInlineTokens = (opt, rubyEnabled, starEnabled, percentEnabled) => {
+  return (state) => {
+    const tokens = state.tokens
+    if (!tokens || !tokens.length) return
+    const htmlEnabled = !!(state.md && state.md.options && state.md.options.html)
 
-const hasNextStar = (tokens, idx, opt, htmlEnabled) => {
-  let hasNextStarPos = -1
-  let i = idx + 1
-  while (i < tokens.length) {
-    const token = tokens[i]
-    if (!token || token.type !== 'text' || typeof token.content !== 'string') {
-      i++
-      continue
-    }
-    if (htmlEnabled && !opt.insideHtml && token.meta && token.meta.__insideHtmlInline) {
-      i++
-      continue
-    }
-    const starIdx = findUsableStarInToken(token)
-    if (starIdx === -1) {
-      i++
-      continue
-    }
-    reserveStarIndex(token, starIdx)
-    const meta = token.meta
-    if (opt.starCommentDelete) {
-      meta.__starCommentDeleteFrom = starIdx + 1
-    } else if (meta.__starCommentInjectedCloseAt) {
-      meta.__starCommentInjectedCloseAt.push(starIdx)
-    } else {
-      meta.__starCommentInjectedCloseAt = [starIdx]
-    }
-    hasNextStarPos = i
-    break
-  }
-
-  if (hasNextStarPos !== -1 && opt.starCommentDelete) {
-    for (let j = idx + 1; j < hasNextStarPos; j++) {
-      scrubToken(tokens[j])
-    }
-  }
-  return hasNextStarPos
-}
-
-const convertInlineText = (tokens, idx, options, opt, rubyEnabled, starEnabled, starInlineOnly, percentEnabled) => {
-  let cont = tokens[idx].content
-  if (typeof cont !== 'string') {
-    cont = cont == null ? '' : String(cont)
-  }
-  cont = normalizeEscapeSentinels(cont, tokens[idx])
-  if (!rubyEnabled && !starEnabled && !percentEnabled) {
-    if (HTML_ENTITIES_REGEXP.test(cont)) {
-      return escapeInlineHtml(cont)
-    }
-    return cont
-  }
-  const htmlEnabled = !!(options && options.html)
-  const rubyActive = rubyEnabled && RUBY_TRIGGER_REGEXP.test(cont)
-  const rubyWrapperCache = rubyActive && htmlEnabled
-    ? detectRubyWrapper(tokens, idx)
-    : false
-  const needsPercent = percentEnabled && cont.indexOf(PERCENT_CHAR + PERCENT_CHAR) !== -1
-
-  if ((starEnabled || percentEnabled) && htmlEnabled && !opt.insideHtml) {
-    ensureInlineHtmlContext(tokens)
-  }
-
-  const insideInlineHtml = htmlEnabled && !opt.insideHtml
-    && tokens[idx]
-    && tokens[idx].meta
-    && tokens[idx].meta.__insideHtmlInline
-
-  const isPercentParagraph = opt.percentCommentParagraph && isPercentCommentParagraph(tokens)
-  const percentParagraphDelete = isPercentParagraph && (opt.percentCommentDelete || opt.starCommentDelete)
-  if (percentParagraphDelete) {
-    tokens.__percentCommentParagraphDelete = true
-    if (idx === 0) {
-      hideInlineTokensAfter(tokens, idx + 1, '__percentCommentDelete')
-      return ''
-    }
-    return ''
-  }
-
-  if (starEnabled && starInlineOnly) {
-    const hasStar = cont.indexOf(STAR_CHAR) !== -1
-    const hasPlaceholder = cont.indexOf(STAR_PLACEHOLDER_CLOSE) !== -1
-    if (!hasStar && !hasPlaceholder) {
-      if (rubyEnabled && rubyActive) {
-        cont = convertRubyKnown(cont, rubyWrapperCache)
+    if (opt.insideHtml && htmlEnabled && (rubyEnabled || starEnabled || percentEnabled)) {
+      for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i]
+        if (!token || (token.type !== 'html_block' && token.type !== 'html_inline')) continue
+        const original = token.content || ''
+        if (!original) continue
+        const converted = convertHtmlTokenContent(original, opt)
+        if (converted !== original) {
+          token.content = converted
+        }
       }
-      if (needsPercent && !(insideInlineHtml && !opt.insideHtml)) {
-        cont = convertPercentComment(cont, opt, tokens[idx])
+    }
+
+    for (let i = 0; i < tokens.length; i++) {
+      const blockToken = tokens[i]
+      if (!blockToken || blockToken.type !== 'inline' || !blockToken.children || !blockToken.children.length) {
+        continue
       }
-      if (HTML_ENTITIES_REGEXP.test(cont)) {
-        cont = escapeInlineHtml(cont)
+      const blockContent = blockToken.content || ''
+      let blockHasStar = starEnabled && blockContent.indexOf(STAR_CHAR) !== -1
+      let blockHasPercent = percentEnabled && blockContent.indexOf(PERCENT_MARKER) !== -1
+      let blockHasRuby = rubyEnabled && blockContent.indexOf('《') !== -1
+      if (!blockHasStar && !blockHasPercent && !blockHasRuby && !blockContent) {
+        for (let j = 0; j < blockToken.children.length; j++) {
+          const token = blockToken.children[j]
+          if (!token || token.type !== 'text' || typeof token.content !== 'string') continue
+          if (!blockHasStar && token.content.indexOf(STAR_CHAR) !== -1) blockHasStar = true
+          if (!blockHasPercent && token.content.indexOf(PERCENT_MARKER) !== -1) blockHasPercent = true
+          if (!blockHasRuby && token.content.indexOf('《') !== -1) blockHasRuby = true
+          if (blockHasStar || blockHasPercent || blockHasRuby) break
+        }
       }
-      return cont
+      if (!blockHasStar && !blockHasPercent && !blockHasRuby) {
+        continue
+      }
+      const children = blockToken.children
+      if (children.__inlineRulerProcessed) continue
+      children.__inlineRulerProcessed = true
+
+      const isStarParagraph = opt.starCommentParagraph && isStarCommentParagraph(children)
+      const isPercentParagraph = opt.percentCommentParagraph && isPercentCommentParagraph(children)
+      const percentDeleteMode = opt.percentCommentDelete || opt.starCommentDelete
+      const starInlineEnabled = starEnabled && !isStarParagraph
+
+      if (isStarParagraph && opt.starCommentDelete) {
+        children.__starCommentParagraphDelete = true
+        hideInlineTokensAfter(children, 0, '__starCommentDelete')
+        continue
+      }
+      if (isPercentParagraph && percentDeleteMode) {
+        children.__percentCommentParagraphDelete = true
+        hideInlineTokensAfter(children, 0, '__percentCommentDelete')
+        continue
+      }
+
+      if (opt.starCommentLine && !children.__starCommentLineGlobalProcessed && hasStarCommentLineCandidate(children)) {
+        markStarCommentLineGlobal(children, opt)
+      }
+      if (opt.percentCommentLine && !children.__percentCommentLineGlobalProcessed && hasPercentCommentLineCandidate(children)) {
+        markPercentCommentLineGlobal(children, opt)
+      }
+      if ((blockHasStar || blockHasPercent) && htmlEnabled && !opt.insideHtml) {
+        ensureInlineHtmlContext(children)
+      }
+      if (starInlineEnabled && blockHasStar) {
+        ensureStarPairInfo(children, opt, htmlEnabled)
+      }
+
+      let starInlineOpen = false
+      const percentClass = opt.percentClass || 'percent-comment'
+      const shouldNormalizeEscapes = starEnabled || percentEnabled
+
+      for (let j = 0; j < children.length; j++) {
+        const token = children[j]
+        if (!token || token.hidden) continue
+        if (token.type === 'text') {
+          if (htmlEnabled && !opt.insideHtml && token.meta && token.meta.__insideHtmlInline) {
+            continue
+          }
+          let content = token.content
+          if (typeof content !== 'string') {
+            content = content == null ? '' : String(content)
+          }
+          if (shouldNormalizeEscapes) {
+            const normalized = normalizeEscapeSentinels(content, token)
+            if (normalized !== content) {
+              token.content = normalized
+              content = normalized
+            }
+          }
+          let meta = token.meta
+          const inStarLine = !!(opt.starCommentLine && meta && meta.__starLineGlobal)
+          const inPercentLine = !!(opt.percentCommentLine && meta && meta.__percentLineGlobal)
+          const needsWrap = isStarParagraph || isPercentParagraph || inStarLine || inPercentLine
+          const hasStarChar = starEnabled && content.indexOf(STAR_CHAR) !== -1
+          const hasPercentMarker = percentEnabled && content.indexOf(PERCENT_MARKER) !== -1
+          const hasRubyMarker = rubyEnabled && content.indexOf('《') !== -1
+          const needsStarOps = starInlineEnabled && !inStarLine
+            && (starInlineOpen
+              || (meta && (meta.__starOpenPositions || meta.__starClosePositions))
+              || hasStarChar)
+          const needsPercentOps = percentEnabled && !inPercentLine && hasPercentMarker
+          const needsRubyOps = rubyEnabled && hasRubyMarker
+          const needsEscape = hasHtmlEntities(content)
+          if (!needsWrap && !needsStarOps && !needsPercentOps && !needsRubyOps && !needsEscape) {
+            continue
+          }
+          if (!meta && (needsStarOps || needsPercentOps)) {
+            meta = token.meta = {}
+          }
+          if (meta && (needsStarOps || needsPercentOps) && !meta.__backslashLookup && content.indexOf('\\') !== -1) {
+            meta.__backslashLookup = createBackslashLookup(content)
+          }
+          let rebuilt = content
+          let mutated = false
+          let forceHtmlInline = false
+          let rubyHandled = false
+
+          if (starInlineEnabled && !inStarLine) {
+            if (opt.starCommentDelete) {
+              if (hasStarChar) {
+                const deleted = applyStarDeletes(rebuilt, token)
+                if (deleted.changed) {
+                  rebuilt = deleted.value
+                  mutated = true
+                }
+              }
+            } else {
+              const hasStarOps = !!(meta && (meta.__starOpenPositions || meta.__starClosePositions))
+              if (starInlineOpen || hasStarOps) {
+                const rubyActive = rubyEnabled && hasRubyMarker
+                const hasRubyWrapper = rubyActive && htmlEnabled ? detectRubyWrapper(children, j) : false
+                const injected = applyStarInsertionsWithRuby(rebuilt, token, rubyActive, hasRubyWrapper, starInlineOpen)
+                if (injected.changed) {
+                  rebuilt = injected.value
+                  mutated = true
+                }
+                starInlineOpen = injected.starOpen
+                rubyHandled = rubyActive
+              }
+            }
+          }
+
+          if (rubyEnabled && !rubyHandled && hasRubyMarker) {
+            const hasRubyWrapper = htmlEnabled ? detectRubyWrapper(children, j) : false
+            const converted = convertRubyKnown(rebuilt, hasRubyWrapper)
+            if (converted !== rebuilt) {
+              rebuilt = converted
+              mutated = true
+            }
+          }
+
+          if (starInlineEnabled && !inStarLine && hasStarChar) {
+            const hasForceActiveStar = meta && meta.__forceActiveStars && meta.__forceActiveStars.length
+            if (!hasForceActiveStar) {
+              const collapsed = collapseMarkerEscapes(rebuilt, STAR_CHAR)
+              if (collapsed !== rebuilt) {
+                rebuilt = collapsed
+                mutated = true
+              }
+            }
+          }
+          if (percentEnabled && hasPercentMarker) {
+            const converted = convertPercentCommentInlineSegment(rebuilt, opt, token)
+            if (converted !== rebuilt) {
+              rebuilt = converted
+              mutated = true
+            }
+          }
+          let prefix = ''
+          let suffix = ''
+          if (isStarParagraph) {
+            if (j === 0) prefix += '<span class="star-comment">'
+            if (j === children.length - 1) suffix = '</span>' + suffix
+          }
+          if (isPercentParagraph) {
+            const cls = percentClass
+            if (j === 0) prefix += '<span class="' + cls + '">'
+            if (j === children.length - 1) suffix = '</span>' + suffix
+          }
+          if (inStarLine) {
+            if (meta.__starLineGlobalStart) prefix += '<span class="star-comment">'
+            if (meta.__starLineGlobalEnd) suffix = '</span>' + suffix
+          }
+          if (inPercentLine) {
+            const cls = percentClass
+            if (meta.__percentLineGlobalStart) prefix += '<span class="' + cls + '">'
+            if (meta.__percentLineGlobalEnd) suffix = '</span>' + suffix
+          }
+          if (prefix || suffix) {
+            rebuilt = prefix + rebuilt + suffix
+            mutated = true
+          }
+          if (needsEscape) {
+            forceHtmlInline = true
+            const escaped = escapeInlineHtml(rebuilt)
+            if (escaped !== rebuilt) {
+              rebuilt = escaped
+              mutated = true
+            }
+          }
+          if (mutated || forceHtmlInline) {
+            token.type = 'html_inline'
+            token.tag = ''
+            token.nesting = 0
+            token.content = rebuilt
+          } else {
+            if (rebuilt !== token.content) {
+              token.content = rebuilt
+            }
+          }
+          continue
+        }
+        if (opt.insideHtml && (token.type === 'html_inline' || token.type === 'html_block')) {
+          const original = token.content || ''
+          if (original) {
+            const converted = convertHtmlTokenContent(original, opt)
+            if (converted !== original) {
+              token.content = converted
+            }
+          }
+        }
+      }
     }
   }
-
-  if (starEnabled) {
-    cont = convertStarComment(
-      cont,
-      tokens,
-      idx,
-      htmlEnabled,
-      opt,
-      rubyActive,
-      rubyWrapperCache,
-    )
-  } else if (rubyEnabled) {
-    if (rubyActive) {
-      cont = convertRubyKnown(cont, rubyWrapperCache)
-    }
-  }
-
-  const percentLineResult = convertPercentLineIfNeeded(cont, tokens, idx, htmlEnabled, opt, needsPercent, insideInlineHtml)
-  cont = percentLineResult.cont
-  if (percentLineResult.handled) {
-    if (HTML_ENTITIES_REGEXP.test(cont)) {
-      cont = escapeInlineHtml(cont)
-    }
-    return cont
-  }
-
-  if (needsPercent && !(insideInlineHtml && !opt.insideHtml)) {
-    cont = convertPercentComment(cont, opt, tokens[idx])
-  }
-
-  if (isPercentParagraph && !percentParagraphDelete) {
-    const cls = opt.percentClass || 'percent-comment'
-    if (idx === 0) {
-      cont = '<span class="' + cls + '">' + cont
-    }
-    if (idx === tokens.length - 1) {
-      cont = cont + '</span>'
-    }
-  }
-
-  if (HTML_ENTITIES_REGEXP.test(cont)) {
-    cont = escapeInlineHtml(cont)
-  }
-  return cont
 }
 
 function rendererInlineText (md, option = {}) {
@@ -1559,6 +1600,13 @@ function rendererInlineText (md, option = {}) {
   }
   opt.starCommentParagraph = opt.starCommentParagraph && !opt.starCommentLine
   opt.percentCommentParagraph = opt.percentCommentParagraph && !opt.percentCommentLine
+
+  const rubyEnabled = !!opt.ruby
+  const starEnabled = !!opt.starComment
+  const percentEnabled = !!opt.percentComment
+  if (!rubyEnabled && !starEnabled && !percentEnabled) return
+
+  patchInlineRulerOrder(md)
 
   if (opt.starCommentLine) {
     ensureStarCommentLineCore(md)
@@ -1585,30 +1633,14 @@ function rendererInlineText (md, option = {}) {
   md.__percentCommentParagraphDeleteEnabled = !!(opt.percentCommentParagraph && percentDeleteFlag)
   md.__percentCommentLineGlobalEnabled = !!opt.percentCommentLine
 
-  const rubyEnabled = !!opt.ruby
-  const starEnabled = !!opt.starComment
-  const percentEnabled = !!opt.percentComment
-  const starInlineOnly = starEnabled && !opt.starCommentLine && !opt.starCommentParagraph
-
-  const shouldConvertInsideHtml = opt.insideHtml && (opt.starComment || opt.ruby || opt.percentComment)
-  if (opt.starComment || opt.percentComment) {
-    if (!md.__escapeMetaReady) {
-      md.__escapeMetaReady = true
-      md.inline.ruler.before('escape', 'star_percent_escape_meta', applyEscapeMetaInlineRule)
-    }
-  }
-  if (shouldConvertInsideHtml) {
-    const defaultHtmlInline = md.renderer.rules.html_inline
-      || ((tokens, idx) => tokens[idx].content)
-    const defaultHtmlBlock = md.renderer.rules.html_block
-      || ((tokens, idx) => tokens[idx].content)
-
-    md.renderer.rules.html_inline = createHtmlTokenWrapper(defaultHtmlInline, opt)
-    md.renderer.rules.html_block = createHtmlTokenWrapper(defaultHtmlBlock, opt)
+  if ((starEnabled || percentEnabled) && !md.__escapeMetaReady) {
+    md.__escapeMetaReady = true
+    md.inline.ruler.before('escape', 'star_percent_escape_meta', applyEscapeMetaInlineRule)
   }
 
-  md.renderer.rules.text = (tokens, idx, options) => {
-    return convertInlineText(tokens, idx, options, opt, rubyEnabled, starEnabled, starInlineOnly, percentEnabled)
+  if (!md.__inlineRulerConvertReady) {
+    md.__inlineRulerConvertReady = true
+    safeCoreRule(md, 'inline_ruler_convert', convertInlineTokens(opt, rubyEnabled, starEnabled, percentEnabled))
   }
 }
 
