@@ -23,10 +23,17 @@ const HTML_GT_NONTAG_REGEXP = /(?<!<\/?[\w\s="/.':;#-\/\?]+)>(?![^<]*>)/g
 const HTML_EMPTY_TAG_REGEXP = /<(\/?)>/g
 const HTML_SLASHED_TAG_REGEXP = /<([^>]+?\/[^>]+?)>/g
 
-const hasHtmlEntities = (value) => {
-  return value.indexOf('&') !== -1
-    || value.indexOf('<') !== -1
-    || value.indexOf('>') !== -1
+const HTML_ENTITY_AMP = 1
+const HTML_ENTITY_LT = 2
+const HTML_ENTITY_GT = 4
+
+const getHtmlEntityFlags = (value) => {
+  if (!value) return 0
+  let flags = 0
+  if (value.indexOf('&') !== -1) flags |= HTML_ENTITY_AMP
+  if (value.indexOf('<') !== -1) flags |= HTML_ENTITY_LT
+  if (value.indexOf('>') !== -1) flags |= HTML_ENTITY_GT
+  return flags
 }
 
 const detectRubyWrapper = (tokens, idx) => {
@@ -308,12 +315,13 @@ const normalizeEscapeSentinels = (text, token) => {
     || text.indexOf(ACTIVE_PERCENT_SENTINEL) !== -1
   if (!hasSentinel) return text
 
-  token.meta = token.meta || {}
-  token.meta.__sentinelNormalized = true
-  const activeStars = token.meta.__forceActiveStars || (token.meta.__forceActiveStars = [])
-  const escapedStars = token.meta.__forceEscapedStars || (token.meta.__forceEscapedStars = [])
-  const activePercents = token.meta.__forceActivePercents || (token.meta.__forceActivePercents = [])
-  const escapedPercents = token.meta.__forceEscapedPercents || (token.meta.__forceEscapedPercents = [])
+  if (!token) return text
+  const meta = token.meta || (token.meta = {})
+  meta.__sentinelNormalized = true
+  let activeStars = null
+  let escapedStars = null
+  let activePercents = null
+  let escapedPercents = null
 
   let rebuilt = ''
   for (let i = 0; i < text.length; i++) {
@@ -323,8 +331,14 @@ const normalizeEscapeSentinels = (text, token) => {
       if (next === STAR_CHAR) {
         const idx = rebuilt.length
         if (ch === ESCAPED_STAR_SENTINEL) {
+          if (!escapedStars) {
+            escapedStars = meta.__forceEscapedStars || (meta.__forceEscapedStars = [])
+          }
           escapedStars.push(idx)
         } else {
+          if (!activeStars) {
+            activeStars = meta.__forceActiveStars || (meta.__forceActiveStars = [])
+          }
           activeStars.push(idx)
         }
       }
@@ -336,8 +350,14 @@ const normalizeEscapeSentinels = (text, token) => {
       if (next === PERCENT_CHAR && next2 === PERCENT_CHAR) {
         const idx = rebuilt.length
         if (ch === ESCAPED_PERCENT_SENTINEL) {
+          if (!escapedPercents) {
+            escapedPercents = meta.__forceEscapedPercents || (meta.__forceEscapedPercents = [])
+          }
           escapedPercents.push(idx)
         } else {
+          if (!activePercents) {
+            activePercents = meta.__forceActivePercents || (meta.__forceActivePercents = [])
+          }
           activePercents.push(idx)
         }
       }
@@ -371,35 +391,51 @@ const isEscapedPercent = (text, index, token) => {
 }
 
 const collapseMarkerEscapes = (value, marker) => {
-  if (!value || value.indexOf('\\') === -1 || !marker) return value
-  const markerLen = marker.length
-  let rebuilt = ''
-  let i = 0
+  if (!value || !marker) return value
+  if (value.indexOf(marker) === -1) return value
+  if (value.indexOf('\\') === -1) return value
 
-  while (i < value.length) {
+  const markerLen = marker.length
+  if (markerLen === 0 || value.length < markerLen) return value
+  const lookup = createBackslashLookup(value)
+  if (!lookup) return value
+
+  const markerCode = markerLen === 1 ? marker.charCodeAt(0) : 0
+  const limit = value.length - markerLen
+  let rebuilt = ''
+  let cursor = 0
+  let i = 0
+  let changed = false
+
+  while (i <= limit) {
     const isMarker = markerLen === 1
-      ? value[i] === marker
+      ? value.charCodeAt(i) === markerCode
       : value.startsWith(marker, i)
-    if (isMarker) {
-      let backslashCount = 0
-      let cursor = i - 1
-      while (cursor >= 0 && value.charCodeAt(cursor) === 92) {
-        backslashCount++
-        cursor--
-      }
-      if (backslashCount) {
-        rebuilt = rebuilt.slice(0, rebuilt.length - backslashCount)
-        const keepCount = backslashCount >> 1
-        if (keepCount > 0) rebuilt += '\\'.repeat(keepCount)
-      }
-      rebuilt += marker
+    if (!isMarker) {
+      i++
+      continue
+    }
+    const backslashCount = lookup(i)
+    if (!backslashCount) {
       i += markerLen
       continue
     }
-    rebuilt += value[i]
-    i++
+    changed = true
+    const start = i - backslashCount
+    if (start > cursor) {
+      rebuilt += value.slice(cursor, start)
+    }
+    const keepCount = backslashCount >> 1
+    if (keepCount > 0) rebuilt += '\\'.repeat(keepCount)
+    rebuilt += marker
+    i += markerLen
+    cursor = i
   }
 
+  if (!changed) return value
+  if (cursor < value.length) {
+    rebuilt += value.slice(cursor)
+  }
   return rebuilt
 }
 
@@ -1131,6 +1167,8 @@ const applyStarInsertionsWithRuby = (value, token, rubyActive, hasRubyWrapper, s
   }
 
   const forcedActive = meta && meta.__forceActiveStars
+  const forcedLen = forcedActive ? forcedActive.length : 0
+  let forcedIdx = 0
   let openIdx = 0
   let closeIdx = 0
   let cursor = 0
@@ -1152,7 +1190,11 @@ const applyStarInsertionsWithRuby = (value, token, rubyActive, hasRubyWrapper, s
     }
 
     if (nextOpen === Infinity) break
-    const shouldKeepEscapes = forcedActive && forcedActive.indexOf(nextOpen) !== -1
+    let shouldKeepEscapes = false
+    if (forcedLen) {
+      while (forcedIdx < forcedLen && forcedActive[forcedIdx] < nextOpen) forcedIdx++
+      shouldKeepEscapes = forcedIdx < forcedLen && forcedActive[forcedIdx] === nextOpen
+    }
     const startEscapes = shouldKeepEscapes ? 0 : getBackslashCountBefore(value, nextOpen, meta)
     let segment = value.slice(cursor, nextOpen - startEscapes)
     if (rubyActive && segment.indexOf('《') !== -1) {
@@ -1213,22 +1255,28 @@ const applyStarDeletes = (value, token) => {
   }
   if (!collected.length) return { value, changed: false }
 
-  collected.sort((a, b) => a[0] - b[0])
-  const merged = []
-  for (const range of collected) {
-    if (!merged.length) {
-      merged.push([range[0], range[1]])
-      continue
-    }
-    const last = merged[merged.length - 1]
-    if (range[0] <= last[1] + 1) {
-      if (range[1] > last[1]) last[1] = range[1]
-    } else {
-      merged.push([range[0], range[1]])
+  let merged = collected
+  if (collected.length > 1) {
+    collected.sort((a, b) => a[0] - b[0])
+    merged = []
+    for (const range of collected) {
+      if (!merged.length) {
+        merged.push([range[0], range[1]])
+        continue
+      }
+      const last = merged[merged.length - 1]
+      if (range[0] <= last[1] + 1) {
+        if (range[1] > last[1]) last[1] = range[1]
+      } else {
+        merged.push([range[0], range[1]])
+      }
     }
   }
 
-  const openSet = opens ? new Set(opens) : null
+  const openLen = opens ? opens.length : 0
+  let openIdx = 0
+  const forcedLen = forcedActive ? forcedActive.length : 0
+  let forcedIdx = 0
   let rebuilt = ''
   let cursor = 0
   for (const range of merged) {
@@ -1236,7 +1284,17 @@ const applyStarDeletes = (value, token) => {
     const end = range[1]
     if (start > cursor) {
       let segment = value.slice(cursor, start)
-      if (openSet && openSet.has(start) && !(forcedActive && forcedActive.indexOf(start) !== -1)) {
+      let isOpenStart = false
+      if (openLen) {
+        while (openIdx < openLen && opens[openIdx] < start) openIdx++
+        isOpenStart = openIdx < openLen && opens[openIdx] === start
+      }
+      let isForcedActive = false
+      if (forcedLen) {
+        while (forcedIdx < forcedLen && forcedActive[forcedIdx] < start) forcedIdx++
+        isForcedActive = forcedIdx < forcedLen && forcedActive[forcedIdx] === start
+      }
+      if (isOpenStart && !isForcedActive) {
         const startEscapes = getBackslashCountBefore(value, start, meta)
         if (startEscapes) {
           segment = segment.slice(0, segment.length - startEscapes)
@@ -1254,11 +1312,11 @@ const applyStarDeletes = (value, token) => {
   return { value: rebuilt, changed: true }
 }
 
-const escapeInlineHtml = (value) => {
+const escapeInlineHtml = (value, flags) => {
   let escaped = value
-  const hasAmp = escaped.indexOf('&') !== -1
-  const hasLt = escaped.indexOf('<') !== -1
-  const hasGt = escaped.indexOf('>') !== -1
+  const hasAmp = (flags & HTML_ENTITY_AMP) !== 0
+  const hasLt = (flags & HTML_ENTITY_LT) !== 0
+  const hasGt = (flags & HTML_ENTITY_GT) !== 0
   if (hasAmp) {
     escaped = escaped.replace(HTML_AMP_REGEXP, '&amp;')
   }
@@ -1294,23 +1352,52 @@ const convertPercentCommentInlineSegment = (segment, opt, token) => {
   if (!segment || segment.indexOf(PERCENT_MARKER) === -1) return segment
   const deleteMode = opt.percentCommentDelete || opt.starCommentDelete
   const cls = opt.percentClass || 'percent-comment'
-  const backslashLookup = segment.indexOf('\\') !== -1 ? createBackslashLookup(segment) : null
-  const getEscapesBefore = backslashLookup
-    ? (idx) => backslashLookup(idx)
-    : (idx) => countBackslashesBefore(segment, idx)
+  const meta = token && token.meta
+  const forcedActive = meta && meta.__forceActivePercents
+  const forcedEscaped = meta && meta.__forceEscapedPercents
+  const forcedActiveLen = forcedActive ? forcedActive.length : 0
+  const forcedEscapedLen = forcedEscaped ? forcedEscaped.length : 0
+  let forcedActiveIdx = 0
+  let forcedEscapedIdx = 0
+  const hasBackslash = segment.indexOf('\\') !== -1
+  let getEscapesBefore = null
+  if (hasBackslash) {
+    if (meta && meta.__backslashLookup && token && token.content === segment) {
+      getEscapesBefore = meta.__backslashLookup
+    } else {
+      const lookup = createBackslashLookup(segment)
+      getEscapesBefore = lookup ? (idx) => lookup(idx) : (idx) => countBackslashesBefore(segment, idx)
+    }
+  }
+  const isForcedActive = (idx) => {
+    if (!forcedActiveLen) return false
+    while (forcedActiveIdx < forcedActiveLen && forcedActive[forcedActiveIdx] < idx) forcedActiveIdx++
+    return forcedActiveIdx < forcedActiveLen && forcedActive[forcedActiveIdx] === idx
+  }
+  const isForcedEscaped = (idx) => {
+    if (!forcedEscapedLen) return false
+    while (forcedEscapedIdx < forcedEscapedLen && forcedEscaped[forcedEscapedIdx] < idx) forcedEscapedIdx++
+    return forcedEscapedIdx < forcedEscapedLen && forcedEscaped[forcedEscapedIdx] === idx
+  }
+  const isEscaped = (idx) => {
+    if (isForcedActive(idx)) return false
+    if (isForcedEscaped(idx)) return true
+    if (!getEscapesBefore) return false
+    return (getEscapesBefore(idx) & 1) === 1
+  }
   let rebuilt = ''
   let cursor = 0
   let openIdx = -1
 
   for (let i = 0; i < segment.length - 1; i++) {
     if (segment[i] !== PERCENT_CHAR || segment[i + 1] !== PERCENT_CHAR) continue
-    if (isEscapedPercent(segment, i, token)) continue
+    if (isEscaped(i)) continue
     if (openIdx === -1) {
       openIdx = i
       i++
       continue
     }
-    const startEscapes = getEscapesBefore(openIdx)
+    const startEscapes = getEscapesBefore ? getEscapesBefore(openIdx) : 0
     const keptStartEscapes = startEscapes ? '\\'.repeat(Math.floor(startEscapes / 2)) : ''
     rebuilt += segment.slice(cursor, openIdx - startEscapes) + keptStartEscapes
     if (!deleteMode) {
@@ -1328,7 +1415,7 @@ const convertPercentCommentInlineSegment = (segment, opt, token) => {
   if (cursor < segment.length) {
     rebuilt += segment.slice(cursor)
   }
-  const hasForceActivePercent = token && token.meta && token.meta.__forceActivePercents && token.meta.__forceActivePercents.length
+  const hasForceActivePercent = forcedActive && forcedActive.length
   if (!hasForceActivePercent) {
     return collapseMarkerEscapes(rebuilt, PERCENT_MARKER)
   }
@@ -1337,22 +1424,24 @@ const convertPercentCommentInlineSegment = (segment, opt, token) => {
 
 const convertStarCommentHtmlSegment = (segment, opt) => {
   if (!segment || segment.indexOf(STAR_CHAR) === -1) return segment
-  const backslashLookup = segment.indexOf('\\') !== -1 ? createBackslashLookup(segment) : null
-  const getEscapesBefore = backslashLookup
-    ? (idx) => backslashLookup(idx)
-    : (idx) => countBackslashesBefore(segment, idx)
+  const hasBackslash = segment.indexOf('\\') !== -1
+  let getEscapesBefore = null
+  if (hasBackslash) {
+    const lookup = createBackslashLookup(segment)
+    getEscapesBefore = lookup ? (idx) => lookup(idx) : (idx) => countBackslashesBefore(segment, idx)
+  }
   let rebuilt = ''
   let cursor = 0
   let openIdx = -1
 
   for (let i = 0; i < segment.length; i++) {
     if (segment.charCodeAt(i) !== STAR_CHAR_CODE) continue
-    if (isEscapedStar(segment, i)) continue
+    if (getEscapesBefore && ((getEscapesBefore(i) & 1) === 1)) continue
     if (openIdx === -1) {
       openIdx = i
       continue
     }
-    const startEscapes = getEscapesBefore(openIdx)
+    const startEscapes = getEscapesBefore ? getEscapesBefore(openIdx) : 0
     const keptStartEscapes = startEscapes ? '\\'.repeat(Math.floor(startEscapes / 2)) : ''
     rebuilt += segment.slice(cursor, openIdx - startEscapes) + keptStartEscapes
     if (!opt.starCommentDelete) {
@@ -1549,7 +1638,8 @@ const convertInlineTokens = (opt, rubyEnabled, starEnabled, percentEnabled) => {
               || hasStarChar)
           const needsPercentOps = percentEnabled && !inPercentLine && hasPercentMarker
           const needsRubyOps = rubyEnabled && hasRubyMarker
-          const needsEscape = hasHtmlEntities(content)
+          const htmlFlags = getHtmlEntityFlags(content)
+          const needsEscape = htmlFlags !== 0
           if (!needsWrap && !needsStarOps && !needsPercentOps && !needsRubyOps && !needsEscape) {
             continue
           }
@@ -1641,7 +1731,7 @@ const convertInlineTokens = (opt, rubyEnabled, starEnabled, percentEnabled) => {
           }
           if (needsEscape) {
             forceHtmlInline = true
-            const escaped = escapeInlineHtml(rebuilt)
+            const escaped = escapeInlineHtml(rebuilt, htmlFlags)
             if (escaped !== rebuilt) {
               rebuilt = escaped
               mutated = true

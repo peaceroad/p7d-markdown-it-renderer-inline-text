@@ -19,6 +19,7 @@ const SUPPORTED_EXAMPLES = new Set([
   'starCommentParagraph',
   'starCommentLine',
   'starCommentLineParagraph',
+  'starCommentLineCjk',
   'starCommentHtml',
   'complex',
   'percentComment',
@@ -167,6 +168,13 @@ const check = (ms, example) => {
     starComment: true,
     percentComment: true,
     starCommentLine: true,
+  })
+  const mdStarCommentLineCjk = mdit().use(mdRendererInlineText, {
+    starComment: true,
+    percentComment: true,
+    starCommentLine: true,
+  }).use(cjkBreaks, {
+    either: true,
   })
   const mdStarCommentLineParagraph = mdit().use(mdRendererInlineText, {
     starComment: true,
@@ -357,6 +365,11 @@ const check = (ms, example) => {
       compareOutput(errors, example, n, '[lineDelete HTML:false]', markdown, hscld, entry.htmlStarCommentDelete)
       const hscldh = mdStarCommentDeleteLineWithHtml.render(markdown)
       compareOutput(errors, example, n, '[lineDelete HTML:true]', markdown, hscldh, entry.htmlStarCommentDelete)
+    }
+
+    if (example === 'starCommentLineCjk') {
+      const hscl = mdStarCommentLineCjk.render(markdown)
+      compareOutput(errors, example, n, '[line cjk either]', markdown, hscl, entry.html)
     }
 
     if (example === 'starCommentLineParagraph') {

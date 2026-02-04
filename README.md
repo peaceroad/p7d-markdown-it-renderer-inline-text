@@ -229,6 +229,12 @@ Example:
 <p>前後</p>
 ```
 
+## Compatibility
+
+This plugin runs as a core rule after `text_join` / `cjk_breaks` and may rewrite `text` tokens to `html_inline` when it injects spans or escapes HTML. If you have post-processing plugins that expect raw `text` tokens, run them before this plugin or make them handle `html_inline`.
+
+`starCommentLine` uses line breaks as they exist after core processing. Plugins that normalize or remove softbreaks (for example, `markdown-it-cjk-breaks-mod` in `either` or `normalizeSoftBreaks` mode) can merge lines, so a line that begins with ★ in the source may not be treated as a line comment after normalization.
+
 ## Testing and performance
 
 - Run all fixtures: `npm test`
