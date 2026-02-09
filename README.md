@@ -12,6 +12,8 @@ A markdown-it plugin. This plugin modify inline text of rendering HTML:
 npm i @peaceroad/markdown-it-renderer-inline-text
 ```
 
+This package is ESM (`"type": "module"`).
+
 ## Ruby
 
 - Match: `(<ruby>)?([\p{sc=Han}0-9A-Za-z.\-_]+)《([^》]+?)》(<\/ruby>)?/u`
@@ -20,21 +22,30 @@ npm i @peaceroad/markdown-it-renderer-inline-text
 ### Use
 
 ```js
-const md = require('markdown-it')
-const mditRendererInlineText = require('@peaceroad/markdown-it-renderer-inline-text')
+import MarkdownIt from 'markdown-it'
+import mditRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
 
-md({html: true}).use(mditRendererInlineText, {ruby: true})
+const md = MarkdownIt({ html: true }).use(mditRendererInlineText, { ruby: true })
 
-console.log(md.render('この環境では超電磁砲《レールガン》を変換できます。');
+console.log(md.render('この環境では超電磁砲《レールガン》を変換できます。'))
 //<p>この環境では<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>を変換できます。</p>
 
-console.log(md.render('ここには高出力<ruby>超電磁砲《レールガン》</ruby>が装備されています。');
+console.log(md.render('ここには高出力<ruby>超電磁砲《レールガン》</ruby>が装備されています。'))
 //<p>ここには高出力<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>が装備されています。</p>
 ```
 
-Notice. If markdown-it is not created with `html: true`, the renderer never hands HTML tokens to this plugin, so the output stays unchanged.
+Notice. With `html: false`, raw HTML-like input is escaped by markdown-it, but ruby markers are still converted in text (including inputs like `<ruby>漢字《かんじ》</ruby>`).
 
-When you _do_ render HTML, set `insideHtml: true` yourself or just pass `{ html: true }` into the plugin options; the plugin automatically flips `insideHtml` on in that case so ruby markers that live inside raw HTML tokens are converted without extra configuration.
+With `html: true`, ruby conversion applies to HTML text nodes (between tags). Tag internals such as attribute values are left untouched.
+
+Ruby marker conversion targets the base-text class in the regex above. If your base includes spaces/kana/symbols, write full ruby HTML explicitly:
+
+```js
+const md = MarkdownIt({ html: true }).use(mditRendererInlineText, { ruby: true })
+
+console.log(md.render('語句: <ruby>かな 混在<rp>(</rp><rt>かなこんざい</rt><rp>)</rp></ruby>'))
+//<p>語句: <ruby>かな 混在<rp>(</rp><rt>かなこんざい</rt><rp>)</rp></ruby></p>
+```
 
 ### Example
 
@@ -68,15 +79,15 @@ The following string is considered a comment.
 - Strings surrounded by ★
 - Replace: `<span class="star-comment">$1</span>`
 
-Enable `insideHtml: true` yourself, or rely on the automatic toggle that happens whenever you pass `{ html: true }` to the plugin options, when you also want ★ comments or ruby markers that live inside inline HTML tags or HTML block tokens to be converted.
+With `html: true`, ★ comments in HTML text nodes (between tags) are converted by default. Attribute values are not rewritten.
 
 ### Basic use
 
 ```js
-const md = require('markdown-it')
-const mditRendererInlineText = require('@peaceroad/markdown-it-renderer-inline-text')
+import MarkdownIt from 'markdown-it'
+import mditRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
 
-md().use(mdRendererInlineText, {
+const md = MarkdownIt().use(mditRendererInlineText, {
   starComment: true,
 })
 
@@ -87,13 +98,15 @@ console.log(md.render('スターは\★と書けばコメント扱いされま�
 //<p>スターは★と書けばコメント扱いされません★。</p>
 ```
 
-Inline HTML such as `<span>★…★</span>` is ignored by default so you can safely mix handwritten markup. Enable `insideHtml: true` (with `md({ html: true })`), or simply pass `{ html: true }` to the plugin options (which automatically flips `insideHtml`) when you also want ★ comments or ruby markers that live inside inline HTML tags to be converted.
+Inline HTML such as `<span>★…★</span>` is converted in text nodes by default when `html: true`, while tag attributes stay untouched.
+
+When `starComment` and `ruby` are both enabled, ruby conversion intentionally runs only outside `★...★` spans.
 
 ```js
-const md = require('markdown-it')
-const mditRendererInlineText = require('@peaceroad/markdown-it-renderer-inline-text')
+import MarkdownIt from 'markdown-it'
+import mditRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
 
-md({html: true}).use(mditRendererInlineText, {
+const md = MarkdownIt({ html: true }).use(mditRendererInlineText, {
   starComment: true,
   ruby: true,
 })
@@ -105,24 +118,24 @@ console.log(md.render('<p>HTMLブロック内★スターコメント★。漢�
 //<p>HTMLブロック内<span class="star-comment">★スターコメント★</span>。<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby></p>
 ```
 
-Because `{ html: true }` in the plugin options automatically enables `insideHtml`, you only need to set `insideHtml: true` manually if you run the plugin without html mode globally and still want inline HTML rewrites inside fenced snippets.
+`starCommentDelete` also works inside HTML text nodes, so inline HTML spans or block-level HTML snippets containing ★ comments disappear when deletion mode is enabled.
 
-`insideHtml` also honors `starCommentDelete`, so inline HTML spans or block-level HTML snippets containing ★ comments disappear when deletion mode is enabled, and ruby markers that live inside those HTML fragments are still converted.
+For safety, raw-text HTML elements (`script`, `style`, `textarea`, `title`) are never rewritten.
 
 ### Paragraph comments (`starCommentParagraph`)
 
 ```js
-const md = require('markdown-it')
-const mdRendererInlineText = require('@peaceroad/markdown-it-renderer-inline-text')
+import MarkdownIt from 'markdown-it'
+import mdRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
 
-md().use(mdRendererInlineText, {
+const md = MarkdownIt().use(mdRendererInlineText, {
   starComment: true,
   starCommentParagraph: true,
 })
 
-console.log(md.render('文章中の★スターコメント★は処理されます。');
+console.log(md.render('文章中の★スターコメント★は処理されます。'))
 //<p>文章中の<span class="star-comment">★スターコメント★</span>は処理されます。</p>
-console.log(md.render('★文頭にスターがあるとその段落をコメント段落として処理します。');
+console.log(md.render('★文頭にスターがあるとその段落をコメント段落として処理します。'))
 //<p>文章中の<span class="star-comment">★文頭にスターがあるとその段落をコメント段落として処理します。</span></p>
 ```
 
@@ -176,29 +189,29 @@ Escape handling is captured during inline parsing before markdown-it's own escap
 Delete star comment output entirely.
 
 ```js
-const md = require('markdown-it')
-const mdRendererInlineText = require('@peaceroad/markdown-it-renderer-inline-text')
+import MarkdownIt from 'markdown-it'
+import mdRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
 
-md().use(mdRendererInlineText, {
+const md = MarkdownIt().use(mdRendererInlineText, {
   starComment: true,
   starCommentParagraph: true,
   starCommentDelete: true,
 })
 
-console.log(md.render('文章中の★スターコメント★は処理されます。')
+console.log(md.render('文章中の★スターコメント★は処理されます。'))
 //<p>文章中のは処理されます。</p>
 
-console.log(md.render('★この段落はコメントとみなします。')
+console.log(md.render('★この段落はコメントとみなします。'))
 // '' (Deleted paragraph element.)
 ```
 
 Enable `starCommentLine: true` together with `starCommentDelete` when you want to drop entire ★ lines regardless of paragraph boundaries.
 List items that begin with ★ are also removed when `starCommentParagraph` runs with `starCommentDelete`, so comment-only bullets don’t leave empty markers.
-`insideHtml: true` works together with `starCommentDelete`, so ★ comments inside inline HTML (e.g. `<span>★…★</span>`) are removed as well when deletion is enabled.
+★ comments inside inline HTML (e.g. `<span>★…★</span>`) are removed as well when deletion is enabled.
 
 ## Percent Comment
 
-Strings wrapped with `%%` become percent comments. They share the deletion flag with star comments: `percentCommentDelete: true` or `starCommentDelete: true` removes the wrapped text entirely, while `percentComment: false` leaves the raw markers unchanged. Customize the span class with `percentClass` (default: `percent-comment`). Inside inline HTML, percent markers are ignored unless `insideHtml` is on (set automatically when the plugin option includes `{ html: true }`).
+Strings wrapped with `%%` become percent comments. `percentCommentDelete: true` removes only percent comments, while `starCommentDelete: true` removes only star comments. `percentComment: false` leaves the raw markers unchanged. Customize the span class with `percentClass` (default: `percent-comment`). With `html: true`, percent markers in HTML text nodes are converted by default (attributes are not rewritten).
 
 Paragraph-level percent comments are supported when `percentCommentParagraph: true`; if a paragraph starts with `%%`, the whole paragraph body is wrapped (or removed when deletion flags are on). Line-level percent comments are supported when `percentCommentLine: true`; any editor line starting with `%%` is wrapped (or removed under delete flags). Paragraph mode is ignored when line mode is on.
 
@@ -211,8 +224,15 @@ md().use(mdRendererInlineText, {
 md({ html: true }).use(mdRendererInlineText, {
   starComment: true,
   percentComment: true,
-  percentCommentDelete: true, // also triggered by starCommentDelete
+  percentCommentDelete: true, // removes only %%...%%
 })
+
+md().use(mdRendererInlineText, {
+  starComment: true,
+  starCommentDelete: true,
+  percentComment: true,
+})
+// `starCommentDelete: true` removes only ★...★
 ```
 
 Example:
@@ -227,6 +247,11 @@ Example:
 前%%コメント%%後
 [HTML:delete]
 <p>前後</p>
+
+[Markdown]
+前%%コメント%%後
+[HTML:starCommentDelete]
+<p>前<span class="percent-comment">%%コメント%%</span>後</p>
 ```
 
 ## Compatibility
@@ -234,6 +259,21 @@ Example:
 This plugin runs as a core rule after `text_join` / `cjk_breaks` and may rewrite `text` tokens to `html_inline` when it injects spans or escapes HTML. If you have post-processing plugins that expect raw `text` tokens, run them before this plugin or make them handle `html_inline`.
 
 `starCommentLine` uses line breaks as they exist after core processing. Plugins that normalize or remove softbreaks (for example, `markdown-it-cjk-breaks-mod` in `either` or `normalizeSoftBreaks` mode) can merge lines, so a line that begins with ★ in the source may not be treated as a line comment after normalization.
+
+Calling `.use(plugin, options)` again on the same `markdown-it` instance updates this plugin's active options; the conversion core rule is kept single-registered and reads the latest options from instance state.
+
+With `html: false`, raw HTML from Markdown source is escaped even when this plugin injects inline wrappers (`★...★`, `%%...%%`, ruby tags). Ruby markers still convert in text, so `<ruby>漢字《かんじ》</ruby>` renders as escaped outer tags plus expanded ruby markup.
+
+Behavior summary:
+
+| markdown-it option | HTML text nodes (between tags) | Tag attributes | Raw-text tags (`script/style/textarea/title`) | Ruby inside `★...★` |
+| --- | --- | --- | --- | --- |
+| `html: false` | Source is treated as text; markers can convert, then `<` / `>` are escaped | N/A (tags are not parsed as HTML) | N/A (same reason) | Not converted inside star span; outside star can convert |
+| `html: true` | Converted for ruby/★/%% when each option is enabled | Never rewritten | Preserved as-is | Not converted inside star span; outside star can convert |
+
+Runtime requirements: modern engines are recommended, but the plugin now includes fallbacks for environments without regex lookbehind and without Unicode property escapes (ruby fallback uses BMP Han ranges).
+
+Breaking change: `insideHtml` option was removed. Passing `insideHtml` now throws during plugin initialization.
 
 ## Testing and performance
 

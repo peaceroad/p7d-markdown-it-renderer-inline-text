@@ -4,28 +4,110 @@ const STAR_COMMENT_LINE_META_KEY = 'starCommentLineDelete'
 const PERCENT_CHAR = '%'
 const PERCENT_CHAR_CODE = PERCENT_CHAR.charCodeAt(0)
 const PERCENT_MARKER = PERCENT_CHAR + PERCENT_CHAR
+const DEFAULT_PERCENT_CLASS = 'percent-comment'
+const STAR_COMMENT_CLASS = 'star-comment'
+const STAR_COMMENT_CLASS_TOKEN_REGEXP = /(?:^|\s)star-comment(?:\s|$)/
 const ESCAPED_STAR_SENTINEL = '\u0001'
 const ACTIVE_STAR_SENTINEL = '\u0002'
 const ESCAPED_PERCENT_SENTINEL = '\u0003'
 const ACTIVE_PERCENT_SENTINEL = '\u0004'
+const RAW_HTML_LT_SENTINEL = '\u0005'
+const RAW_HTML_GT_SENTINEL = '\u0006'
 const PERCENT_COMMENT_LINE_META_KEY = 'percentCommentLineDelete'
 const INLINE_HTML_TAG_REGEXP = /^<\s*(\/)?\s*([A-Za-z][\w:-]*)/i
 const INLINE_HTML_SELF_CLOSE_REGEXP = /\/>\s*$/
+const INLINE_HTML_CLASS_ATTR_REGEXP = /\bclass\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i
 const INLINE_HTML_VOID_TAGS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link',
   'meta', 'param', 'source', 'track', 'wbr',
 ])
+const INLINE_HTML_RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'title'])
 const RUBY_REGEXP_CONTENT = '(<ruby>)?([\\p{sc=Han}0-9A-Za-z.\\-_]+)《([^》]+?)》(<\\/ruby>)?'
-const RUBY_REGEXP = new RegExp(RUBY_REGEXP_CONTENT, 'ug')
+const RUBY_REGEXP_FALLBACK_CONTENT = '(<ruby>)?([\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF0-9A-Za-z.\\-_]+)《([^》]+?)》(<\\/ruby>)?'
 const HTML_AMP_REGEXP = /&/g
 const HTML_LT_NONTAG_REGEXP = /<(?!\/?[\w\s="/.':;#-\/\?]+>)/g
-const HTML_GT_NONTAG_REGEXP = /(?<!<\/?[\w\s="/.':;#-\/\?]+)>(?![^<]*>)/g
 const HTML_EMPTY_TAG_REGEXP = /<(\/?)>/g
 const HTML_SLASHED_TAG_REGEXP = /<([^>]+?\/[^>]+?)>/g
 
 const HTML_ENTITY_AMP = 1
 const HTML_ENTITY_LT = 2
 const HTML_ENTITY_GT = 4
+const SPECIAL_HTML_NONE = -1
+const SPECIAL_HTML_UNCLOSED = -2
+
+const HTML_GT_NONTAG_REGEXP = (() => {
+  try {
+    return new RegExp("(?<!<\\/?[\\w\\s=\"/.':;#-\\/\\?]+)>(?![^<]*>)", 'g')
+  } catch (err) {
+    return null
+  }
+})()
+
+const createRubyRegExp = () => {
+  try {
+    return new RegExp(RUBY_REGEXP_CONTENT, 'ug')
+  } catch (err) {
+    return new RegExp(RUBY_REGEXP_FALLBACK_CONTENT, 'g')
+  }
+}
+
+const RUBY_REGEXP = createRubyRegExp()
+
+const fallbackEscapeHtml = (value) => {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+const normalizePercentClass = (escapeHtml, value) => {
+  const raw = typeof value === 'string' ? value.trim() : ''
+  const normalized = raw || DEFAULT_PERCENT_CLASS
+  return {
+    raw: normalized,
+    escaped: escapeHtml(normalized),
+  }
+}
+
+const maskRawHtmlAngles = (value) => {
+  if (!value) return value
+  const hasLt = value.indexOf('<') !== -1
+  const hasGt = value.indexOf('>') !== -1
+  if (!hasLt && !hasGt) return value
+
+  let rebuilt = ''
+  for (let i = 0; i < value.length; i++) {
+    const ch = value.charCodeAt(i)
+    if (ch === 60) { // '<'
+      rebuilt += RAW_HTML_LT_SENTINEL
+    } else if (ch === 62) { // '>'
+      rebuilt += RAW_HTML_GT_SENTINEL
+    } else {
+      rebuilt += value[i]
+    }
+  }
+  return rebuilt
+}
+
+const restoreRawHtmlAngles = (value) => {
+  if (!value) return value
+  if (value.indexOf(RAW_HTML_LT_SENTINEL) === -1 && value.indexOf(RAW_HTML_GT_SENTINEL) === -1) {
+    return value
+  }
+  let rebuilt = ''
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i]
+    if (ch === RAW_HTML_LT_SENTINEL) {
+      rebuilt += '&lt;'
+    } else if (ch === RAW_HTML_GT_SENTINEL) {
+      rebuilt += '&gt;'
+    } else {
+      rebuilt += ch
+    }
+  }
+  return rebuilt
+}
 
 const getHtmlEntityFlags = (value) => {
   if (!value) return 0
@@ -44,16 +126,195 @@ const detectRubyWrapper = (tokens, idx) => {
     && tokens[idx + 1].content === '</ruby>'
 }
 
+const findSpecialHtmlEnd = (value, start) => {
+  if (start + 1 >= value.length) return SPECIAL_HTML_NONE
+  const next = value.charCodeAt(start + 1)
+  if (next === 33) { // '!'
+    if (start + 3 < value.length
+      && value.charCodeAt(start + 2) === 45
+      && value.charCodeAt(start + 3) === 45) {
+      const end = value.indexOf('-->', start + 4)
+      return end === -1 ? SPECIAL_HTML_UNCLOSED : end + 2
+    }
+    if (value.startsWith('<![CDATA[', start)) {
+      const end = value.indexOf(']]>', start + 9)
+      return end === -1 ? SPECIAL_HTML_UNCLOSED : end + 2
+    }
+    return SPECIAL_HTML_NONE
+  }
+  if (next === 63) { // '?'
+    const end = value.indexOf('?>', start + 2)
+    return end === -1 ? SPECIAL_HTML_UNCLOSED : end + 1
+  }
+  return SPECIAL_HTML_NONE
+}
+
+const getInlineHtmlTagInfo = (tag) => {
+  if (!tag || tag.length < 3 || tag.charCodeAt(0) !== 60 || tag.charCodeAt(tag.length - 1) !== 62) {
+    return null
+  }
+  if (tag.startsWith('<!--') || tag.startsWith('<!') || tag.startsWith('<?')) {
+    return null
+  }
+  const tagMatch = tag.match(INLINE_HTML_TAG_REGEXP)
+  if (!tagMatch) return null
+  const isClosing = !!tagMatch[1]
+  const tagName = tagMatch[2] ? tagMatch[2].toLowerCase() : ''
+  if (!tagName) return null
+  const isVoid = INLINE_HTML_VOID_TAGS.has(tagName)
+  let isSelfClosing = false
+  if (!isClosing && !isVoid) {
+    isSelfClosing = INLINE_HTML_SELF_CLOSE_REGEXP.test(tag)
+  }
+  return { isClosing, tagName, isVoid, isSelfClosing }
+}
+
+const isStarCommentSpanOpenTag = (tag, info = null) => {
+  const tagInfo = info || getInlineHtmlTagInfo(tag)
+  if (!tagInfo || tagInfo.isClosing || tagInfo.tagName !== 'span' || tagInfo.isVoid || tagInfo.isSelfClosing) {
+    return false
+  }
+  if (tag.indexOf(STAR_COMMENT_CLASS) === -1) return false
+  const classMatch = tag.match(INLINE_HTML_CLASS_ATTR_REGEXP)
+  if (!classMatch) return false
+  const classValue = classMatch[1] || classMatch[2] || classMatch[3] || ''
+  return STAR_COMMENT_CLASS_TOKEN_REGEXP.test(classValue)
+}
+
+const applyTagToStack = (stack, tag, rubyDepth) => {
+  const info = getInlineHtmlTagInfo(tag)
+  if (!info) return { info: null, rubyDepth }
+  if (info.isClosing) {
+    if (stack.length && stack[stack.length - 1] === info.tagName) {
+      const popped = stack.pop()
+      if (popped === 'ruby') rubyDepth--
+    } else {
+      const idx = stack.lastIndexOf(info.tagName)
+      if (idx !== -1) {
+        const removed = stack.splice(idx, 1)[0]
+        if (removed === 'ruby') rubyDepth--
+      } else if (stack.length) {
+        const popped = stack.pop()
+        if (popped === 'ruby') rubyDepth--
+      }
+    }
+  } else if (!info.isVoid && !info.isSelfClosing) {
+    stack.push(info.tagName)
+    if (info.tagName === 'ruby') rubyDepth++
+  }
+  return { info, rubyDepth }
+}
+
+const trackStarCommentSpanDepth = (spanStack, tag, info, depth) => {
+  if (!info || info.tagName !== 'span') return depth
+  if (info.isClosing) {
+    if (!spanStack.length) return depth
+    const wasStarSpan = spanStack.pop()
+    return wasStarSpan ? depth - 1 : depth
+  }
+  if (info.isVoid || info.isSelfClosing) return depth
+  const isStarSpan = isStarCommentSpanOpenTag(tag, info)
+  spanStack.push(isStarSpan)
+  return isStarSpan ? depth + 1 : depth
+}
+
+const findRawTextCloseTag = (value, from, tagName, lowerValue) => {
+  const needle = '</' + tagName
+  let cursor = from
+  while (cursor < value.length) {
+    const start = lowerValue.indexOf(needle, cursor)
+    if (start === -1) return null
+    const end = findHtmlTagEnd(value, start)
+    if (end === -1) return { start, end: -1 }
+    const info = getInlineHtmlTagInfo(value.slice(start, end + 1))
+    if (info && info.isClosing && info.tagName === tagName) {
+      return { start, end }
+    }
+    cursor = start + needle.length
+  }
+  return null
+}
+
+const findHtmlTagEnd = (value, start) => {
+  const specialEnd = findSpecialHtmlEnd(value, start)
+  if (specialEnd >= start) return specialEnd
+  if (specialEnd === SPECIAL_HTML_UNCLOSED) return -1
+  let idx = start + 1
+  let quote = 0
+  while (idx < value.length) {
+    const ch = value.charCodeAt(idx)
+    if (quote) {
+      if (ch === quote) quote = 0
+    } else if (ch === 34 || ch === 39) { // " or '
+      quote = ch
+    } else if (ch === 62) { // '>'
+      return idx
+    }
+    idx++
+  }
+  return -1
+}
+
+const isEscapableHtmlTag = (tag) => {
+  if (!tag || tag.length < 3 || tag.charCodeAt(0) !== 60 || tag.charCodeAt(tag.length - 1) !== 62) {
+    return false
+  }
+  if (tag.startsWith('<!--') || tag.startsWith('<!') || tag.startsWith('<?')) {
+    return false
+  }
+  const tagMatch = tag.match(INLINE_HTML_TAG_REGEXP)
+  if (!tagMatch) return false
+
+  const isClosing = !!tagMatch[1]
+  const tail = tag.slice(tagMatch[0].length, -1).trim()
+  if (isClosing) {
+    return tail === ''
+  }
+  if (!tail || tail === '/') return true
+  // malformed like <e/ee> is not treated as a tag-like token.
+  if (tail.charCodeAt(0) === 47) return false
+  return true
+}
+
 const walkHtmlSegments = (value, onText, onTag) => {
   let start = 0
   let i = 0
+  let rawTextTag = null
+  let lowerValue = null
   while (i < value.length) {
+    if (rawTextTag) {
+      if (!lowerValue) lowerValue = value.toLowerCase()
+      const close = findRawTextCloseTag(value, i, rawTextTag, lowerValue)
+      if (!close || close.end === -1) {
+        onTag(value.slice(i))
+        return
+      }
+      if (close.start > i) {
+        onTag(value.slice(i, close.start))
+      }
+      onTag(value.slice(close.start, close.end + 1))
+      i = close.end + 1
+      start = i
+      rawTextTag = null
+      continue
+    }
     if (value.charCodeAt(i) !== 60) { // '<'
       i++
       continue
     }
     if (i > start) {
       onText(value.slice(start, i))
+    }
+    const specialEnd = findSpecialHtmlEnd(value, i)
+    if (specialEnd >= i) {
+      onTag(value.slice(i, specialEnd + 1))
+      i = specialEnd + 1
+      start = i
+      continue
+    }
+    if (specialEnd === SPECIAL_HTML_UNCLOSED) {
+      onTag(value.slice(i))
+      return
     }
     let j = i + 1
     let quote = 0
@@ -72,7 +333,12 @@ const walkHtmlSegments = (value, onText, onTag) => {
       onText(value.slice(i))
       return
     }
-    onTag(value.slice(i, j + 1))
+    const tag = value.slice(i, j + 1)
+    onTag(tag)
+    const info = getInlineHtmlTagInfo(tag)
+    if (info && !info.isClosing && !info.isVoid && !info.isSelfClosing && INLINE_HTML_RAW_TEXT_TAGS.has(info.tagName)) {
+      rawTextTag = info.tagName
+    }
     i = j + 1
     start = i
   }
@@ -83,16 +349,51 @@ const walkHtmlSegments = (value, onText, onTag) => {
 
 const walkHtmlSegmentsWithStack = (value, onText, onTag) => {
   const stack = []
+  const spanStack = []
   let rubyDepth = 0
+  let starCommentSpanDepth = 0
   let start = 0
   let i = 0
+  let rawTextTag = null
+  let lowerValue = null
   while (i < value.length) {
+    if (rawTextTag) {
+      if (!lowerValue) lowerValue = value.toLowerCase()
+      const close = findRawTextCloseTag(value, i, rawTextTag, lowerValue)
+      if (!close || close.end === -1) {
+        onTag(value.slice(i))
+        return
+      }
+      if (close.start > i) {
+        onTag(value.slice(i, close.start))
+      }
+      const closeTag = value.slice(close.start, close.end + 1)
+      onTag(closeTag)
+      const result = applyTagToStack(stack, closeTag, rubyDepth)
+      rubyDepth = result.rubyDepth
+      starCommentSpanDepth = trackStarCommentSpanDepth(spanStack, closeTag, result.info, starCommentSpanDepth)
+      i = close.end + 1
+      start = i
+      rawTextTag = null
+      continue
+    }
     if (value.charCodeAt(i) !== 60) { // '<'
       i++
       continue
     }
     if (i > start) {
-      onText(value.slice(start, i), rubyDepth > 0)
+      onText(value.slice(start, i), rubyDepth > 0, starCommentSpanDepth > 0)
+    }
+    const specialEnd = findSpecialHtmlEnd(value, i)
+    if (specialEnd >= i) {
+      onTag(value.slice(i, specialEnd + 1))
+      i = specialEnd + 1
+      start = i
+      continue
+    }
+    if (specialEnd === SPECIAL_HTML_UNCLOSED) {
+      onTag(value.slice(i))
+      return
     }
     let j = i + 1
     let quote = 0
@@ -108,48 +409,24 @@ const walkHtmlSegmentsWithStack = (value, onText, onTag) => {
       j++
     }
     if (j >= value.length) {
-      onText(value.slice(i), rubyDepth > 0)
+      onText(value.slice(i), rubyDepth > 0, starCommentSpanDepth > 0)
       return
     }
     const tag = value.slice(i, j + 1)
     onTag(tag)
-
-    const tagMatch = tag.match(INLINE_HTML_TAG_REGEXP)
-    if (tagMatch) {
-      const isClosing = !!tagMatch[1]
-      const tagName = tagMatch[2] ? tagMatch[2].toLowerCase() : ''
-      if (tagName) {
-        const isVoid = INLINE_HTML_VOID_TAGS.has(tagName)
-        let isSelfClosing = false
-        if (!isClosing && !isVoid) {
-          isSelfClosing = INLINE_HTML_SELF_CLOSE_REGEXP.test(tag)
-        }
-        if (isClosing) {
-          if (stack.length && stack[stack.length - 1] === tagName) {
-            const popped = stack.pop()
-            if (popped === 'ruby') rubyDepth--
-          } else {
-            const idx = stack.lastIndexOf(tagName)
-            if (idx !== -1) {
-              const removed = stack.splice(idx, 1)[0]
-              if (removed === 'ruby') rubyDepth--
-            } else if (stack.length) {
-              const popped = stack.pop()
-              if (popped === 'ruby') rubyDepth--
-            }
-          }
-        } else if (!isVoid && !isSelfClosing) {
-          stack.push(tagName)
-          if (tagName === 'ruby') rubyDepth++
-        }
-      }
+    const result = applyTagToStack(stack, tag, rubyDepth)
+    rubyDepth = result.rubyDepth
+    const info = result.info
+    starCommentSpanDepth = trackStarCommentSpanDepth(spanStack, tag, info, starCommentSpanDepth)
+    if (info && !info.isClosing && !info.isVoid && !info.isSelfClosing && INLINE_HTML_RAW_TEXT_TAGS.has(info.tagName)) {
+      rawTextTag = info.tagName
     }
 
     i = j + 1
     start = i
   }
   if (start < value.length) {
-    onText(value.slice(start), rubyDepth > 0)
+    onText(value.slice(start), rubyDepth > 0, starCommentSpanDepth > 0)
   }
 }
 
@@ -223,36 +500,32 @@ const ensureInlineHtmlContext = (tokens) => {
     if (!token) continue
     if (token.type === 'html_inline') {
       const raw = token.content || ''
-      if (!raw || raw[0] !== '<' || raw[1] === '!') continue
-      const tagMatch = raw.match(INLINE_HTML_TAG_REGEXP)
-      if (!tagMatch) continue
-      const isClosing = !!tagMatch[1]
-      const tagName = tagMatch[2] ? tagMatch[2].toLowerCase() : ''
-      if (!tagName) continue
-      const isVoid = INLINE_HTML_VOID_TAGS.has(tagName)
-      let isSelfClosing = false
-      if (!isClosing && !isVoid) {
-        isSelfClosing = INLINE_HTML_SELF_CLOSE_REGEXP.test(raw)
-      }
-      if (isClosing) {
-        if (stack.length && stack[stack.length - 1] === tagName) {
-          stack.pop()
-        } else {
-          const idx = stack.lastIndexOf(tagName)
-          if (idx !== -1) {
-            stack.splice(idx, 1)
-          } else if (stack.length) {
-            stack.pop()
-          }
-        }
-      } else if (!isVoid && !isSelfClosing) {
-        stack.push(tagName)
+      if (!raw || raw[0] !== '<') continue
+      const result = applyTagToStack(stack, raw, 0)
+      if (!result.info) {
+        continue
       }
     } else if (token.type === 'text' && stack.length) {
-      token.meta = token.meta || {}
-      token.meta.__insideHtmlInline = true
+      if (INLINE_HTML_RAW_TEXT_TAGS.has(stack[stack.length - 1])) {
+        token.meta = token.meta || {}
+        token.meta.__insideRawHtmlInline = true
+      }
     }
   }
+}
+
+const hasInlineHtmlTokens = (tokens) => {
+  if (!tokens) return false
+  if (tokens.__hasInlineHtmlTokens !== undefined) return tokens.__hasInlineHtmlTokens
+  let found = false
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i] && tokens[i].type === 'html_inline') {
+      found = true
+      break
+    }
+  }
+  tokens.__hasInlineHtmlTokens = found
+  return found
 }
 
 const hideInlineTokensAfter = (tokens, startIdx, metaKey = '__starCommentDelete') => {
@@ -440,6 +713,7 @@ const collapseMarkerEscapes = (value, marker) => {
 }
 
 const applyEscapeMetaInlineRule = (state, silent) => {
+  if (!state || !state.md || !state.md.__escapeMetaEnabled) return false
   const start = state.pos
   const src = state.src
   const max = state.posMax
@@ -619,13 +893,27 @@ const isLineBreakToken = (token) => {
   return type === 'softbreak' || type === 'hardbreak'
 }
 
-const findLastTextTokenIndex = (tokens, start, end) => {
+const findLastTextTokenIndex = (tokens, start, end, predicate = null) => {
   for (let i = end - 1; i >= start; i--) {
-    if (tokens[i] && tokens[i].type === 'text' && tokens[i].content !== '') {
-      return i
-    }
+    const token = tokens[i]
+    if (!token || token.type !== 'text' || token.content === '') continue
+    if (predicate && !predicate(token, i)) continue
+    return i
   }
   return -1
+}
+
+const findParagraphWrapBounds = (tokens) => {
+  let start = -1
+  let end = -1
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+    if (!token || token.hidden || token.type !== 'text' || token.content === '') continue
+    if (token.meta && token.meta.__insideRawHtmlInline) continue
+    if (start === -1) start = i
+    end = i
+  }
+  return [start, end]
 }
 
 const suppressTokenOutput = (token) => {
@@ -664,7 +952,7 @@ const annotateStarLine = (tokens, start, end, breakIdx, opt) => {
   if (firstToken.content[cursor] !== STAR_CHAR) return
   if (isEscapedStar(firstToken.content, cursor, firstToken)) return
 
-  const endTextIdx = findLastTextTokenIndex(tokens, start, end)
+  const endTextIdx = findLastTextTokenIndex(tokens, start, end, (token) => !(token.meta && token.meta.__insideRawHtmlInline))
   if (endTextIdx === -1) return
 
   firstToken.meta = firstToken.meta || {}
@@ -696,15 +984,24 @@ const annotatePercentLine = (tokens, start, end, breakIdx, opt) => {
   if (start >= end) return
   const firstToken = tokens[start]
   if (!firstToken || firstToken.type !== 'text') return
+  let firstContent = firstToken.content
+  if (typeof firstContent !== 'string') {
+    firstContent = firstContent == null ? '' : String(firstContent)
+  }
+  const normalized = normalizeEscapeSentinels(firstContent, firstToken)
+  if (normalized !== firstContent) {
+    firstToken.content = normalized
+    firstContent = normalized
+  }
   let cursor = 0
-  while (cursor < firstToken.content.length && (firstToken.content[cursor] === ' ' || firstToken.content[cursor] === '\t')) {
+  while (cursor < firstContent.length && (firstContent[cursor] === ' ' || firstContent[cursor] === '\t')) {
     cursor++
   }
-  if (cursor >= firstToken.content.length - 1) return
-  if (firstToken.content[cursor] !== PERCENT_CHAR || firstToken.content[cursor + 1] !== PERCENT_CHAR) return
-  if (isEscapedPercent(firstToken.content, cursor)) return
+  if (cursor >= firstContent.length - 1) return
+  if (firstContent[cursor] !== PERCENT_CHAR || firstContent[cursor + 1] !== PERCENT_CHAR) return
+  if (isEscapedPercent(firstContent, cursor, firstToken)) return
 
-  const endTextIdx = findLastTextTokenIndex(tokens, start, end)
+  const endTextIdx = findLastTextTokenIndex(tokens, start, end, (token) => !(token.meta && token.meta.__insideRawHtmlInline))
   if (endTextIdx === -1) return
 
   firstToken.meta = firstToken.meta || {}
@@ -719,7 +1016,7 @@ const annotatePercentLine = (tokens, start, end, breakIdx, opt) => {
   endToken.meta = endToken.meta || {}
   endToken.meta.__percentLineGlobalEnd = true
 
-  const deleteMode = opt.percentCommentDelete || opt.starCommentDelete
+  const deleteMode = opt.percentCommentDelete
   if (deleteMode) {
     for (let i = start; i < end; i++) {
       suppressTokenOutput(tokens[i])
@@ -731,38 +1028,6 @@ const annotatePercentLine = (tokens, start, end, breakIdx, opt) => {
       suppressTokenOutput(tokens[breakIdx])
     }
   }
-}
-
-const hasStarCommentLineCandidate = (tokens) => {
-  if (!tokens || !tokens.length || tokens.__starCommentLineGlobalProcessed) return false
-  if (tokens.__starCommentLineCandidate !== undefined) {
-    return tokens.__starCommentLineCandidate
-  }
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i]
-    if (token && typeof token.content === 'string' && token.content.indexOf(STAR_CHAR) !== -1) {
-      tokens.__starCommentLineCandidate = true
-      return true
-    }
-  }
-  tokens.__starCommentLineCandidate = false
-  return false
-}
-
-const hasPercentCommentLineCandidate = (tokens) => {
-  if (!tokens || !tokens.length || tokens.__percentCommentLineGlobalProcessed) return false
-  if (tokens.__percentCommentLineCandidate !== undefined) {
-    return tokens.__percentCommentLineCandidate
-  }
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i]
-    if (token && typeof token.content === 'string' && token.content.indexOf(PERCENT_MARKER) !== -1) {
-      tokens.__percentCommentLineCandidate = true
-      return true
-    }
-  }
-  tokens.__percentCommentLineCandidate = false
-  return false
 }
 
 const markStarCommentLineGlobal = (tokens, opt) => {
@@ -822,6 +1087,7 @@ const ensureStarCommentLineCore = (md) => {
   md.__starCommentLineCoreReady = true
 
   safeCoreRule(md, 'star_comment_line_marker', (state) => {
+    if (!md.__starCommentLineGlobalEnabled) return
     if (!state.tokens || !state.tokens.length || !state.src) return
     if (state.src.indexOf(STAR_CHAR) === -1) return
     const cache = getStarCommentLineCache(md, state.src)
@@ -890,6 +1156,7 @@ const ensurePercentCommentLineCore = (md) => {
   md.__percentCommentLineCoreReady = true
 
   safeCoreRule(md, 'percent_comment_line_marker', (state) => {
+    if (!md.__percentCommentLineGlobalEnabled) return
     if (!state.tokens || !state.tokens.length || !state.src) return
     if (state.src.indexOf(PERCENT_MARKER) === -1) return
     const cache = getPercentCommentLineCache(md, state.src)
@@ -1032,13 +1299,6 @@ const patchParagraphRulesForStarLine = (md) => {
   }
 }
 
-const ensureStarCommentLineDeleteSupport = (md) => {
-  if (md.__starCommentLineDeleteSupport) return
-  md.__starCommentLineDeleteSupport = true
-  ensureStarCommentLineCore(md)
-  patchParagraphRulesForStarLine(md)
-}
-
 const ensureParagraphDeleteSupport = (md) => {
   if (md.__paragraphDeletePatched) return
   md.__paragraphDeletePatched = true
@@ -1110,7 +1370,7 @@ const ensureStarPairInfo = (tokens, opt, htmlEnabled) => {
     if (opt.starCommentLine && token.meta && token.meta.__starLineGlobal) {
       continue
     }
-    if (htmlEnabled && !opt.insideHtml && token.meta && token.meta.__insideHtmlInline) {
+    if (htmlEnabled && token.meta && token.meta.__insideRawHtmlInline) {
       continue
     }
     let content = token.content
@@ -1313,25 +1573,73 @@ const applyStarDeletes = (value, token) => {
 }
 
 const escapeInlineHtml = (value, flags) => {
-  let escaped = value
   const hasAmp = (flags & HTML_ENTITY_AMP) !== 0
   const hasLt = (flags & HTML_ENTITY_LT) !== 0
   const hasGt = (flags & HTML_ENTITY_GT) !== 0
-  if (hasAmp) {
-    escaped = escaped.replace(HTML_AMP_REGEXP, '&amp;')
+  if (!hasAmp && !hasLt && !hasGt) return value
+
+  const hasQuote = value.indexOf('"') !== -1 || value.indexOf('\'') !== -1
+  if (!hasAmp && HTML_GT_NONTAG_REGEXP && (!hasGt || !hasQuote)) {
+    let escaped = value
+    if (hasLt) {
+      escaped = escaped.replace(HTML_LT_NONTAG_REGEXP, '&lt;')
+    }
+    if (hasGt) {
+      escaped = escaped.replace(HTML_GT_NONTAG_REGEXP, '&gt;')
+    }
+    if (hasLt) {
+      escaped = escaped
+        .replace(HTML_EMPTY_TAG_REGEXP, '&lt;$1&gt;')
+        .replace(HTML_SLASHED_TAG_REGEXP, '&lt;$1&gt;')
+    }
+    return escaped
   }
-  if (hasLt) {
-    escaped = escaped.replace(HTML_LT_NONTAG_REGEXP, '&lt;')
+
+  const parseTags = hasLt || hasGt || (hasAmp && value.indexOf('<') !== -1)
+  if (!parseTags) {
+    return hasAmp ? value.replace(HTML_AMP_REGEXP, '&amp;') : value
   }
-  if (hasGt) {
-    escaped = escaped.replace(HTML_GT_NONTAG_REGEXP, '&gt;')
+
+  let rebuilt = ''
+  let i = 0
+  while (i < value.length) {
+    const ch = value.charCodeAt(i)
+    if (ch === 60) { // '<'
+      const end = findHtmlTagEnd(value, i)
+      if (end === -1) {
+        rebuilt += hasLt ? '&lt;' : '<'
+        i++
+        continue
+      }
+      const tag = value.slice(i, end + 1)
+      if (isEscapableHtmlTag(tag)) {
+        rebuilt += tag
+      } else if (hasLt) {
+        let inner = tag.slice(1, -1)
+        if (hasAmp && inner.indexOf('&') !== -1) {
+          inner = inner.replace(HTML_AMP_REGEXP, '&amp;')
+        }
+        rebuilt += '&lt;' + inner + '&gt;'
+      } else {
+        rebuilt += tag
+      }
+      i = end + 1
+      continue
+    }
+    if (ch === 62) { // '>'
+      rebuilt += hasGt ? '&gt;' : '>'
+      i++
+      continue
+    }
+    if (ch === 38) { // '&'
+      rebuilt += hasAmp ? '&amp;' : '&'
+      i++
+      continue
+    }
+    rebuilt += value[i]
+    i++
   }
-  if (hasLt) {
-    escaped = escaped
-      .replace(HTML_EMPTY_TAG_REGEXP, '&lt;$1&gt;')
-      .replace(HTML_SLASHED_TAG_REGEXP, '&lt;$1&gt;')
-  }
-  return escaped
+  return rebuilt
 }
 
 const convertRubyKnown = (cont, hasRubyWrapper) => {
@@ -1350,8 +1658,8 @@ const convertRubyKnown = (cont, hasRubyWrapper) => {
 
 const convertPercentCommentInlineSegment = (segment, opt, token) => {
   if (!segment || segment.indexOf(PERCENT_MARKER) === -1) return segment
-  const deleteMode = opt.percentCommentDelete || opt.starCommentDelete
-  const cls = opt.percentClass || 'percent-comment'
+  const deleteMode = opt.percentCommentDelete
+  const cls = opt.percentClassEscaped || DEFAULT_PERCENT_CLASS
   const meta = token && token.meta
   const forcedActive = meta && meta.__forceActivePercents
   const forcedEscaped = meta && meta.__forceEscapedPercents
@@ -1498,8 +1806,8 @@ const convertRubyHtmlContent = (value, hasRubyTrigger) => {
   let rebuilt = ''
   walkHtmlSegmentsWithStack(
     value,
-    (segment, insideRuby) => {
-      if (!segment || segment.indexOf('《') === -1) {
+    (segment, insideRuby, insideStarCommentSpan) => {
+      if (!segment || segment.indexOf('《') === -1 || insideStarCommentSpan) {
         rebuilt += segment
         return
       }
@@ -1517,25 +1825,32 @@ const convertHtmlTokenContent = (value, opt) => {
   const needsPercent = opt.percentComment && value.indexOf(PERCENT_MARKER) !== -1
   if (!needsRuby && !needsStar && !needsPercent) return value
   let converted = value
-  if (needsRuby) {
-    converted = convertRubyHtmlContent(converted, needsRuby)
-  }
   if (needsStar) {
     converted = convertStarCommentHtmlContent(converted, opt, needsStar)
   }
   if (needsPercent) {
     converted = convertPercentCommentHtmlContent(converted, opt)
   }
+  if (needsRuby) {
+    converted = convertRubyHtmlContent(converted, needsRuby)
+  }
   return converted
 }
 
-const convertInlineTokens = (opt, rubyEnabled, starEnabled, percentEnabled) => {
+const convertInlineTokens = (md) => {
   return (state) => {
+    const opt = md.__rendererInlineTextOptions
+    if (!opt) return
+    const rubyEnabled = !!opt.ruby
+    const starEnabled = !!opt.starComment
+    const percentEnabled = !!opt.percentComment
+    if (!rubyEnabled && !starEnabled && !percentEnabled) return
+
     const tokens = state.tokens
     if (!tokens || !tokens.length) return
     const htmlEnabled = !!(state.md && state.md.options && state.md.options.html)
 
-    if (opt.insideHtml && htmlEnabled && (rubyEnabled || starEnabled || percentEnabled)) {
+    if (htmlEnabled) {
       for (let i = 0; i < tokens.length; i++) {
         const token = tokens[i]
         if (!token || (token.type !== 'html_block' && token.type !== 'html_inline')) continue
@@ -1576,7 +1891,7 @@ const convertInlineTokens = (opt, rubyEnabled, starEnabled, percentEnabled) => {
 
       const isStarParagraph = opt.starCommentParagraph && isStarCommentParagraph(children)
       const isPercentParagraph = opt.percentCommentParagraph && isPercentCommentParagraph(children)
-      const percentDeleteMode = opt.percentCommentDelete || opt.starCommentDelete
+      const percentDeleteMode = opt.percentCommentDelete
       const starInlineEnabled = starEnabled && !isStarParagraph
 
       if (isStarParagraph && opt.starCommentDelete) {
@@ -1590,33 +1905,39 @@ const convertInlineTokens = (opt, rubyEnabled, starEnabled, percentEnabled) => {
         continue
       }
 
-      if (opt.starCommentLine && !children.__starCommentLineGlobalProcessed && hasStarCommentLineCandidate(children)) {
+      if (htmlEnabled && hasInlineHtmlTokens(children)) {
+        ensureInlineHtmlContext(children)
+      }
+      if (opt.starCommentLine && blockHasStar && !children.__starCommentLineGlobalProcessed) {
         markStarCommentLineGlobal(children, opt)
       }
-      if (opt.percentCommentLine && !children.__percentCommentLineGlobalProcessed && hasPercentCommentLineCandidate(children)) {
+      if (opt.percentCommentLine && blockHasPercent && !children.__percentCommentLineGlobalProcessed) {
         markPercentCommentLineGlobal(children, opt)
-      }
-      if ((blockHasStar || blockHasPercent) && htmlEnabled && !opt.insideHtml) {
-        ensureInlineHtmlContext(children)
       }
       if (starInlineEnabled && blockHasStar) {
         ensureStarPairInfo(children, opt, htmlEnabled)
       }
 
       let starInlineOpen = false
-      const percentClass = opt.percentClass || 'percent-comment'
+      const percentClass = opt.percentClassEscaped || DEFAULT_PERCENT_CLASS
       const shouldNormalizeEscapes = starEnabled || percentEnabled
+      const paragraphWrapBounds = (isStarParagraph || isPercentParagraph)
+        ? findParagraphWrapBounds(children)
+        : [-1, -1]
+      const paragraphWrapStart = paragraphWrapBounds[0]
+      const paragraphWrapEnd = paragraphWrapBounds[1]
 
       for (let j = 0; j < children.length; j++) {
         const token = children[j]
         if (!token || token.hidden) continue
         if (token.type === 'text') {
-          if (htmlEnabled && !opt.insideHtml && token.meta && token.meta.__insideHtmlInline) {
-            continue
-          }
           let content = token.content
           if (typeof content !== 'string') {
             content = content == null ? '' : String(content)
+          }
+          const insideRawHtmlInline = !!(htmlEnabled && token.meta && token.meta.__insideRawHtmlInline)
+          if (insideRawHtmlInline) {
+            continue
           }
           if (shouldNormalizeEscapes) {
             const normalized = normalizeEscapeSentinels(content, token)
@@ -1638,11 +1959,12 @@ const convertInlineTokens = (opt, rubyEnabled, starEnabled, percentEnabled) => {
               || hasStarChar)
           const needsPercentOps = percentEnabled && !inPercentLine && hasPercentMarker
           const needsRubyOps = rubyEnabled && hasRubyMarker
-          const htmlFlags = getHtmlEntityFlags(content)
-          const needsEscape = htmlFlags !== 0
-          if (!needsWrap && !needsStarOps && !needsPercentOps && !needsRubyOps && !needsEscape) {
+          const needsTransform = needsWrap || needsStarOps || needsPercentOps || needsRubyOps
+          if (!needsTransform) {
             continue
           }
+          const rawAnglesNeeded = !htmlEnabled && (content.indexOf('<') !== -1 || content.indexOf('>') !== -1)
+          const htmlFlags = getHtmlEntityFlags(content)
           if (!meta && (needsStarOps || needsPercentOps)) {
             meta = token.meta = {}
           }
@@ -1653,6 +1975,19 @@ const convertInlineTokens = (opt, rubyEnabled, starEnabled, percentEnabled) => {
           let mutated = false
           let forceHtmlInline = false
           let rubyHandled = false
+
+          let rawAnglesMasked = false
+          if (rawAnglesNeeded) {
+            const masked = maskRawHtmlAngles(rebuilt)
+            if (masked !== rebuilt) {
+              rebuilt = masked
+              rawAnglesMasked = true
+            }
+          }
+          const htmlFlagsForEscape = rawAnglesNeeded
+            ? (htmlFlags & HTML_ENTITY_AMP)
+            : htmlFlags
+          const needsEscape = htmlFlagsForEscape !== 0
 
           if (starInlineEnabled && !inStarLine) {
             if (opt.starCommentDelete) {
@@ -1708,13 +2043,13 @@ const convertInlineTokens = (opt, rubyEnabled, starEnabled, percentEnabled) => {
           let prefix = ''
           let suffix = ''
           if (isStarParagraph) {
-            if (j === 0) prefix += '<span class="star-comment">'
-            if (j === children.length - 1) suffix = '</span>' + suffix
+            if (j === paragraphWrapStart) prefix += '<span class="star-comment">'
+            if (j === paragraphWrapEnd) suffix = '</span>' + suffix
           }
           if (isPercentParagraph) {
             const cls = percentClass
-            if (j === 0) prefix += '<span class="' + cls + '">'
-            if (j === children.length - 1) suffix = '</span>' + suffix
+            if (j === paragraphWrapStart) prefix += '<span class="' + cls + '">'
+            if (j === paragraphWrapEnd) suffix = '</span>' + suffix
           }
           if (inStarLine) {
             if (meta.__starLineGlobalStart) prefix += '<span class="star-comment">'
@@ -1731,10 +2066,18 @@ const convertInlineTokens = (opt, rubyEnabled, starEnabled, percentEnabled) => {
           }
           if (needsEscape) {
             forceHtmlInline = true
-            const escaped = escapeInlineHtml(rebuilt, htmlFlags)
+            const escaped = escapeInlineHtml(rebuilt, htmlFlagsForEscape)
             if (escaped !== rebuilt) {
               rebuilt = escaped
               mutated = true
+            }
+          }
+          if (!htmlEnabled && rawAnglesMasked) {
+            const restored = restoreRawHtmlAngles(rebuilt)
+            if (restored !== rebuilt) {
+              rebuilt = restored
+              mutated = true
+              forceHtmlInline = true
             }
           }
           if (mutated || forceHtmlInline) {
@@ -1749,7 +2092,7 @@ const convertInlineTokens = (opt, rubyEnabled, starEnabled, percentEnabled) => {
           }
           continue
         }
-        if (opt.insideHtml && (token.type === 'html_inline' || token.type === 'html_block')) {
+        if (token.type === 'html_inline' || token.type === 'html_block') {
           const original = token.content || ''
           if (original) {
             const converted = convertHtmlTokenContent(original, opt)
@@ -1759,11 +2102,19 @@ const convertInlineTokens = (opt, rubyEnabled, starEnabled, percentEnabled) => {
           }
         }
       }
+
     }
   }
 }
 
-function rendererInlineText (md, option = {}) {
+const normalizePluginOptions = (md, option = {}) => {
+  const rawOption = option && typeof option === 'object' ? option : {}
+  if (Object.prototype.hasOwnProperty.call(rawOption, 'insideHtml')) {
+    throw new TypeError('[markdown-it-renderer-inline-text] `insideHtml` option was removed. Use markdown-it `html: true` and current default behavior instead.')
+  }
+  const escapeHtml = md && md.utils && typeof md.utils.escapeHtml === 'function'
+    ? md.utils.escapeHtml
+    : fallbackEscapeHtml
   const opt = {
     ruby: false,
     starComment: false,
@@ -1774,47 +2125,54 @@ function rendererInlineText (md, option = {}) {
     percentCommentDelete: false,
     percentCommentParagraph: false,
     percentCommentLine: false,
-    percentClass: 'percent-comment',
-    insideHtml: false,
-    ...option,
-  }
-  if (option && option.html) {
-    opt.insideHtml = true
+    percentClass: DEFAULT_PERCENT_CLASS,
+    ...rawOption,
   }
   opt.starCommentParagraph = opt.starCommentParagraph && !opt.starCommentLine
   opt.percentCommentParagraph = opt.percentCommentParagraph && !opt.percentCommentLine
+  const percentClass = normalizePercentClass(escapeHtml, opt.percentClass)
+  opt.percentClass = percentClass.raw
+  opt.percentClassEscaped = percentClass.escaped
+  return opt
+}
 
+function rendererInlineText (md, option = {}) {
+  const opt = normalizePluginOptions(md, option)
+  md.__rendererInlineTextOptions = opt
   const rubyEnabled = !!opt.ruby
   const starEnabled = !!opt.starComment
   const percentEnabled = !!opt.percentComment
-  if (!rubyEnabled && !starEnabled && !percentEnabled) return
+  const anyEnabled = rubyEnabled || starEnabled || percentEnabled
+  const percentDeleteFlag = opt.percentCommentDelete
+  md.__escapeMetaEnabled = !!(starEnabled || percentEnabled)
+  md.__starCommentLineGlobalEnabled = !!(starEnabled && opt.starCommentLine)
+  md.__starCommentParagraphDeleteEnabled = !!(starEnabled && opt.starCommentParagraph && opt.starCommentDelete)
+  md.__percentCommentParagraphDeleteEnabled = !!(percentEnabled && opt.percentCommentParagraph && percentDeleteFlag)
+  md.__percentCommentLineGlobalEnabled = !!(percentEnabled && opt.percentCommentLine)
+  if (!anyEnabled) return
 
   patchInlineRulerOrder(md)
 
-  if (opt.starCommentLine) {
+  if (starEnabled && opt.starCommentLine) {
     ensureStarCommentLineCore(md)
   }
-  if (opt.percentCommentLine) {
+  if (percentEnabled && opt.percentCommentLine) {
     ensurePercentCommentLineCore(md)
   }
-  if ((opt.starCommentParagraph || opt.starCommentLine) && opt.starCommentDelete) {
-    ensureStarCommentLineDeleteSupport(md)
-  }
-  if (opt.starCommentParagraph && opt.starCommentDelete) {
+  if (starEnabled && opt.starCommentParagraph && opt.starCommentDelete) {
+    ensureParagraphDeleteSupport(md)
     ensureStarCommentParagraphDeleteCore(md)
   }
-  const percentDeleteFlag = opt.percentCommentDelete || opt.starCommentDelete
-  if (opt.percentCommentParagraph && percentDeleteFlag) {
+  if (starEnabled && opt.starCommentLine && opt.starCommentDelete) {
+    ensureParagraphDeleteSupport(md)
+  }
+  if (percentEnabled && opt.percentCommentParagraph && percentDeleteFlag) {
     ensureParagraphDeleteSupport(md)
     ensurePercentCommentParagraphDeleteCore(md)
   }
-  if (opt.percentCommentLine && percentDeleteFlag) {
+  if (percentEnabled && opt.percentCommentLine && percentDeleteFlag) {
     ensureParagraphDeleteSupport(md)
   }
-  md.__starCommentLineGlobalEnabled = !!opt.starCommentLine
-  md.__starCommentParagraphDeleteEnabled = !!(opt.starCommentParagraph && opt.starCommentDelete)
-  md.__percentCommentParagraphDeleteEnabled = !!(opt.percentCommentParagraph && percentDeleteFlag)
-  md.__percentCommentLineGlobalEnabled = !!opt.percentCommentLine
 
   if ((starEnabled || percentEnabled) && !md.__escapeMetaReady) {
     md.__escapeMetaReady = true
@@ -1823,7 +2181,7 @@ function rendererInlineText (md, option = {}) {
 
   if (!md.__inlineRulerConvertReady) {
     md.__inlineRulerConvertReady = true
-    safeCoreRule(md, 'inline_ruler_convert', convertInlineTokens(opt, rubyEnabled, starEnabled, percentEnabled))
+    safeCoreRule(md, 'inline_ruler_convert', convertInlineTokens(md))
   }
 }
 

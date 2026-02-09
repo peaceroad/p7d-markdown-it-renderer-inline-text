@@ -44,6 +44,8 @@
 文章中の★スター<span>コメ</span>ント★は処理されます。
 [HTML]
 <p>文章中の<span class="star-comment">★スター<span>コメ</span>ント★</span>は処理されます。</p>
+[HTML:false]
+<p>文章中の<span class="star-comment">★スター&lt;span&gt;コメ&lt;/span&gt;ント★</span>は処理されます。</p>
 [HTML:delete]
 <p>文章中のは処理されます。</p>
 
@@ -51,6 +53,8 @@
 文章中の★スター<span>コメ</span>ント★は★処理★されます。
 [HTML]
 <p>文章中の<span class="star-comment">★スター<span>コメ</span>ント★</span>は<span class="star-comment">★処理★</span>されます。</p>
+[HTML:false]
+<p>文章中の<span class="star-comment">★スター&lt;span&gt;コメ&lt;/span&gt;ント★</span>は<span class="star-comment">★処理★</span>されます。</p>
 [HTML:delete]
 <p>文章中のはされます。</p>
 
@@ -58,6 +62,8 @@
 文章中の★スター<span>コメ</span>ント★は★<strong>処理</strong>されます★。
 [HTML]
 <p>文章中の<span class="star-comment">★スター<span>コメ</span>ント★</span>は<span class="star-comment">★<strong>処理</strong>されます★</span>。</p>
+[HTML:false]
+<p>文章中の<span class="star-comment">★スター&lt;span&gt;コメ&lt;/span&gt;ント★</span>は<span class="star-comment">★&lt;strong&gt;処理&lt;/strong&gt;されます★</span>。</p>
 [HTML:delete]
 <p>文章中のは。</p>
 
@@ -104,6 +110,8 @@
 文章中の★<span>タグ</span>★は処理されます。
 [HTML]
 <p>文章中の<span class="star-comment">★<span>タグ</span>★</span>は処理されます。</p>
+[HTML:false]
+<p>文章中の<span class="star-comment">★&lt;span&gt;タグ&lt;/span&gt;★</span>は処理されます。</p>
 [HTML:delete]
 <p>文章中のは処理されます。</p>
 
@@ -111,6 +119,8 @@
 ここでは、★この★環境では超電磁砲を変換できます★。<span>aa</span>★
 [HTML]
 <p>ここでは、<span class="star-comment">★この★</span>環境では超電磁砲を変換できます<span class="star-comment">★。<span>aa</span>★</span></p>
+[HTML:false]
+<p>ここでは、<span class="star-comment">★この★</span>環境では超電磁砲を変換できます<span class="star-comment">★。&lt;span&gt;aa&lt;/span&gt;★</span></p>
 [HTML:delete]
 <p>ここでは、環境では超電磁砲を変換できます</p>
 
@@ -139,6 +149,8 @@
 文章中★の<span>スターコメント</span>★は処理★されます。
 [HTML]
 <p>文章中<span class="star-comment">★の<span>スターコメント</span>★</span>は処理★されます。</p>
+[HTML:false]
+<p>文章中<span class="star-comment">★の&lt;span&gt;スターコメント&lt;/span&gt;★</span>は処理★されます。</p>
 [HTML:delete]
 <p>文章中は処理★されます。</p>
 
@@ -146,8 +158,12 @@
 文章中★の<span>スターコメント</span>\★は処理されます。
 [HTML]
 <p>文章中★の<span>スターコメント</span>★は処理されます。</p>
+[HTML:false]
+<p>文章中★の&lt;span&gt;スターコメント&lt;/span&gt;★は処理されます。</p>
 [HTML:delete]
 <p>文章中★の<span>スターコメント</span>★は処理されます。</p>
+[HTML:deletefalse]
+<p>文章中★の&lt;span&gt;スターコメント&lt;/span&gt;★は処理されます。</p>
 
 [Markdown]
 文章中★のスターコメント\\★は処理されます。
@@ -189,6 +205,8 @@
 文章中★の<span>スターコメント</span>\\★は処理されます。
 [HTML]
 <p>文章中<span class="star-comment">★の<span>スターコメント</span>\★</span>は処理されます。</p>
+[HTML:false]
+<p>文章中<span class="star-comment">★の&lt;span&gt;スターコメント&lt;/span&gt;\★</span>は処理されます。</p>
 [HTML:delete]
 <p>文章中は処理されます。</p>
 
@@ -197,8 +215,12 @@
 文章中★の<span>スターコメント</span>\\\★は処理されます。
 [HTML]
 <p>文章中★の<span>スターコメント</span>\★は処理されます。</p>
+[HTML:false]
+<p>文章中★の&lt;span&gt;スターコメント&lt;/span&gt;\★は処理されます。</p>
 [HTML:delete]
 <p>文章中★の<span>スターコメント</span>\★は処理されます。</p>
+[HTML:deletefalse]
+<p>文章中★の&lt;span&gt;スターコメント&lt;/span&gt;\★は処理されます。</p>
 
 
 [Markdown]

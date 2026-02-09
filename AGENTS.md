@@ -5,7 +5,7 @@
 - It prioritizes compatibility and robustness with other markdown-it plugins and HTML blocks while keeping performance competitive.
 
 ## Plugin wiring
-- `rendererInlineText` merges options once per `markdown-it` instance; passing `{ html: true }` flips `insideHtml` on automatically.
+- `rendererInlineText` normalizes options once per `markdown-it` instance; removed options (currently `insideHtml`) throw at initialization.
 - `starCommentLine` overrides `starCommentParagraph` (paragraph mode is disabled when line mode is enabled).
 - Hooks are patched once per instance:
   - `md.inline.ruler.before('escape', 'star_percent_escape_meta', applyEscapeMetaInlineRule)` captures backslash parity for ★/%% before markdown-it's escape rule runs (emits sentinels that normalize into token meta).
@@ -13,7 +13,7 @@
   - `patchInlineRulerOrder` ensures `inline_ruler_convert` always runs last, so `text_join` / `cjk_breaks` and other core rules don't invalidate metadata.
   - `safeCoreRule(... 'star_comment_line_marker' ...)` runs when `starCommentLine` is enabled.
   - `safeCoreRule(... 'star_comment_paragraph_delete' ...)` runs when `starCommentParagraph` + `starCommentDelete` are enabled.
-  - `safeCoreRule(... 'percent_comment_paragraph_delete' ...)` runs when `percentCommentParagraph` + (`percentCommentDelete` or `starCommentDelete`) are enabled.
+  - `safeCoreRule(... 'percent_comment_paragraph_delete' ...)` runs when `percentCommentParagraph` + `percentCommentDelete` are enabled.
   - `safeCoreRule(... 'percent_comment_line_marker' ...)` runs when `percentCommentLine` is enabled.
   - `md.renderer.rules.paragraph_open` / `paragraph_close` are wrapped only when delete mode needs to suppress wrappers.
 
@@ -23,24 +23,28 @@
   - inline ★/%% processing
   - ruby conversion (`《` present)
   - line/paragraph wrappers
-  - HTML escaping (`<`, `>`, `&`)
+  - inline HTML context scan only when `html_inline` child tokens exist
 - Escape sentinels are normalized once per text token; forced-active/escaped indexes live in token.meta. Backslash runs are cached per token (`__backslashLookup`) to keep escape checks O(n) per token instead of per marker pair.
 - Inline ★ handling:
-  - `ensureStarPairInfo` builds open/close positions (ignores line-mode tokens and inline HTML when `insideHtml` is false).
+  - `ensureStarPairInfo` builds open/close positions (ignores line-mode tokens and raw-text HTML tokens).
   - `applyStarInsertionsWithRuby` inserts `<span>` for star pairs while **avoiding ruby conversion inside ★ spans**.
   - `starInlineOpen` carries unclosed ★ state across tokens.
 - Ruby conversion:
   - `convertRubyKnown` is applied only where needed and only when `《` exists in the segment.
   - When inside HTML wrappers, `detectRubyWrapper` avoids double `<ruby>` tags.
+  - For HTML token conversion, ruby is skipped inside `<span class="star-comment">...</span>` regions so `★...★` internals are preserved.
 - Percent conversion:
   - `convertPercentCommentInlineSegment` wraps %% pairs unless delete mode is on.
 - Line and paragraph modes:
   - `markStarCommentLineGlobal` / `markPercentCommentLineGlobal` annotate line spans once per inline token array.
+  - line/paragraph wrapper boundaries skip raw-text HTML tokens so wrapper tags remain balanced.
   - Line delete mode suppresses the line content and adjacent breaks (matching renderer behavior).
   - Paragraph delete mode hides the rest of the inline tokens and sets `__starCommentParagraphDelete` / `__percentCommentParagraphDelete`.
 - HTML handling:
-  - When `insideHtml` is true, both `html_inline` and `html_block` contents are converted in core.
-  - When `insideHtml` is false, inline HTML is detected by `ensureInlineHtmlContext` and untouched.
+  - Ruby/★/%% conversion is active in both `html_inline` and `html_block` contents whenever each feature is enabled.
+  - Inline HTML context metadata from `ensureInlineHtmlContext` is used to identify raw-text HTML regions and avoid rewriting those text tokens.
+  - Raw-text tags (`script`, `style`, `textarea`, `title`) are preserved as-is.
+  - When markdown-it runs with `html: false`, source-side raw `<` / `>` in processed inline text are masked and restored as entities so wrapper injection never re-enables raw HTML.
 - Escaping:
   - `escapeInlineHtml` runs after conversion when `<`, `>`, or `&` exists.
   - Tokens that need escaping are forced to `html_inline` to avoid markdown-it's default HTML escape.
@@ -52,11 +56,13 @@
 - For each inline block, the first non-empty line decides whether `STAR_COMMENT_LINE_META_KEY` is set; in line mode it requires all non-empty lines in the block to be ★ lines.
 
 ## Known concerns
-- HTML token splitting uses a lightweight scanner (not a full parser). It handles `>` inside quoted attributes, but malformed tags, comments, or edge-case HTML constructs may still confuse the split.
+- HTML token splitting uses a lightweight scanner (not a full parser). It now handles `>` inside quoted attributes plus comment/CDATA/processing-instruction terminators, but malformed tags or other edge-case HTML constructs may still confuse the split.
 - `patchInlineRulerOrder` monkey-patches the core ruler’s `push/after/before` methods per instance; plugins that expect to override those methods or force a later rule may be affected.
 - Paragraph delete mode wraps `paragraph_open`/`paragraph_close`; if another plugin replaces those renderers after this patch, the skip logic can be lost.
-- The inline-ruler rule is registered once per `markdown-it` instance; calling the plugin again with different options will not reconfigure the existing core rule.
-- Requires modern JS engines (Unicode property escapes + lookbehind in regex); older browsers without these features will not work.
+- The inline-ruler convert rule is registered once per `markdown-it` instance, but reads the latest normalized options from instance state so repeated `.use(...)` calls can reconfigure behavior safely.
+- Regex compatibility fallback is built in:
+  - ruby conversion first tries Unicode property escapes (`\p{sc=Han}`) and falls back to BMP Han ranges when unavailable.
+  - HTML escaping avoids regex lookbehind so older JS engines can still load the module.
 
 ## Performance notes
 - Use `node test/material/perf-inline-tokens.js` for spot checks (env: `ITER`, `REPEAT`, `REPEAT_HEAVY`).

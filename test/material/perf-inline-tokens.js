@@ -1,5 +1,5 @@
 import mdit from 'markdown-it'
-import rendererInlineText from '../index.js'
+import rendererInlineText from '../../index.js'
 
 const ITERATIONS = Number(process.env.ITER || 30)
 const REPEAT = Number(process.env.REPEAT || 200)

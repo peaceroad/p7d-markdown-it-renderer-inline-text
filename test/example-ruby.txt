@@ -12,16 +12,22 @@
 ここには高出力<ruby>超電磁砲《レールガン》</ruby>が装備されています。
 [HTML]
 <p>ここには高出力<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>が装備されています。</p>
+[HTML:false]
+<p>ここには高出力&lt;ruby&gt;<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>&lt;/ruby&gt;が装備されています。</p>
 
 [Markdown]
 **ここ**には高出力<ruby>超電磁砲《レールガン》</ruby>が**装備**されています。
 [HTML]
 <p><strong>ここ</strong>には高出力<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>が<strong>装備</strong>されています。</p>
+[HTML:false]
+<p><strong>ここ</strong>には高出力&lt;ruby&gt;<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>&lt;/ruby&gt;が<strong>装備</strong>されています。</p>
 
 [Markdown]
 **ここには高出力<ruby>超電磁砲《レールガン》</ruby>を装備されています**。
 [HTML]
 <p><strong>ここには高出力<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>を装備されています</strong>。</p>
+[HTML:false]
+<p><strong>ここには高出力&lt;ruby&gt;<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>&lt;/ruby&gt;を装備されています</strong>。</p>
 
 [Markdown]
 **この環境**では超電磁砲《レールガン》と超電磁砲《レールガン》を**変換**できます。
@@ -37,6 +43,8 @@ CSSはW3C《だぶるさんしー》は策定しています。
 CSSは非営利団体<ruby>W3C《だぶるさんしー》</ruby>は策定しています。
 [HTML]
 <p>CSSは非営利団体<ruby>W3C<rp>《</rp><rt>だぶるさんしー</rt><rp>》</rp></ruby>は策定しています。</p>
+[HTML:false]
+<p>CSSは非営利団体&lt;ruby&gt;<ruby>W3C<rp>《</rp><rt>だぶるさんしー</rt><rp>》</rp></ruby>&lt;/ruby&gt;は策定しています。</p>
 
 [Markdown]
 日本語《にほんご》と英語《えいご》
