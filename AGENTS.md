@@ -69,3 +69,4 @@
 ## Tests
 - Full suite: `npm test`
 - Fixture parser in `test/test.js` is strict (label-based expected HTML matching per option profile).
+- Option/edge assertions are separated in `test/option-assertions.js` (called from `test/test.js`).
