@@ -13,21 +13,21 @@
 [HTML]
 <p>ここには高出力<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>が装備されています。</p>
 [HTML:false]
-<p>ここには高出力&lt;ruby&gt;<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>&lt;/ruby&gt;が装備されています。</p>
+<p>ここには高出力<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>が装備されています。</p>
 
 [Markdown]
 **ここ**には高出力<ruby>超電磁砲《レールガン》</ruby>が**装備**されています。
 [HTML]
 <p><strong>ここ</strong>には高出力<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>が<strong>装備</strong>されています。</p>
 [HTML:false]
-<p><strong>ここ</strong>には高出力&lt;ruby&gt;<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>&lt;/ruby&gt;が<strong>装備</strong>されています。</p>
+<p><strong>ここ</strong>には高出力<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>が<strong>装備</strong>されています。</p>
 
 [Markdown]
 **ここには高出力<ruby>超電磁砲《レールガン》</ruby>を装備されています**。
 [HTML]
 <p><strong>ここには高出力<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>を装備されています</strong>。</p>
 [HTML:false]
-<p><strong>ここには高出力&lt;ruby&gt;<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>&lt;/ruby&gt;を装備されています</strong>。</p>
+<p><strong>ここには高出力<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>を装備されています</strong>。</p>
 
 [Markdown]
 **この環境**では超電磁砲《レールガン》と超電磁砲《レールガン》を**変換**できます。
@@ -44,7 +44,7 @@ CSSは非営利団体<ruby>W3C《だぶるさんしー》</ruby>は策定して�
 [HTML]
 <p>CSSは非営利団体<ruby>W3C<rp>《</rp><rt>だぶるさんしー</rt><rp>》</rp></ruby>は策定しています。</p>
 [HTML:false]
-<p>CSSは非営利団体&lt;ruby&gt;<ruby>W3C<rp>《</rp><rt>だぶるさんしー</rt><rp>》</rp></ruby>&lt;/ruby&gt;は策定しています。</p>
+<p>CSSは非営利団体<ruby>W3C<rp>《</rp><rt>だぶるさんしー</rt><rp>》</rp></ruby>は策定しています。</p>
 
 [Markdown]
 日本語《にほんご》と英語《えいご》
@@ -61,6 +61,17 @@ CSSは非営利団体<ruby>W3C《だぶるさんしー》</ruby>は策定して�
 [HTML]
 <p><ruby>日本語<rp>《</rp><rt>にほんご</rt><rp>》</rp></ruby>と<ruby>日本語<rp>《</rp><rt>ニホンゴ</rt><rp>》</rp></ruby></p>
 
+[Markdown]
+説明は"超電磁砲《レールガン》"です。
+[HTML]
+<p>説明は&quot;<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>&quot;です。</p>
+[HTML:false]
+<p>説明は&quot;<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>&quot;です。</p>
+
+[Markdown]
+案内文：<ruby onmouseover=alert(1)>超電磁砲《レールガン》</ruby>です。
+[HTML:false]
+<p>案内文：&lt;ruby onmouseover=alert(1)&gt;<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>&lt;/ruby&gt;です。</p>
 
 [Markdown]
 aaa><aaa\&lt;

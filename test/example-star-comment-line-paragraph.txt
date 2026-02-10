@@ -7,7 +7,6 @@
 [HTML:delete]
 <p>通常行です。</p>
 
-
 [Markdown]
 ★コメント1
 ★コメント2

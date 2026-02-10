@@ -5,49 +5,51 @@
 - It prioritizes compatibility and robustness with other markdown-it plugins and HTML blocks while keeping performance competitive.
 
 ## Plugin wiring
-- `rendererInlineText` normalizes options once per `markdown-it` instance; removed options (currently `insideHtml`) throw at initialization.
-- `starCommentLine` overrides `starCommentParagraph` (paragraph mode is disabled when line mode is enabled).
+- `rendererInlineText` normalizes options on each `.use(...)` call and stores the latest option set on the `markdown-it` instance.
+- `starCommentLine` overrides `starCommentParagraph`; `percentCommentLine` overrides `percentCommentParagraph`.
 - Hooks are patched once per instance:
   - `md.inline.ruler.before('escape', 'star_percent_escape_meta', applyEscapeMetaInlineRule)` captures backslash parity for ★/%% before markdown-it's escape rule runs (emits sentinels that normalize into token meta).
+  - `md.inline.ruler.before('text', 'star_percent_comment_preparse', createCommentPreparseInlineRule(md))` runs inline preparse for ★/%% pairs in `html:false` inline mode.
   - `safeCoreRule(..., 'inline_ruler_convert', ...)` installs the core rule for conversion.
-  - `patchInlineRulerOrder` ensures `inline_ruler_convert` always runs last, so `text_join` / `cjk_breaks` and other core rules don't invalidate metadata.
+  - `patchCoreRulerOrderGuard` wraps core-ruler mutators (`push/after/before/at`) and keeps `inline_ruler_convert` and `paragraph_wrapper_adjust` at the tail, so `text_join` / `cjk_breaks` and later-added core rules don't invalidate metadata.
   - `safeCoreRule(... 'star_comment_line_marker' ...)` runs when `starCommentLine` is enabled.
   - `safeCoreRule(... 'star_comment_paragraph_delete' ...)` runs when `starCommentParagraph` + `starCommentDelete` are enabled.
   - `safeCoreRule(... 'percent_comment_paragraph_delete' ...)` runs when `percentCommentParagraph` + `percentCommentDelete` are enabled.
   - `safeCoreRule(... 'percent_comment_line_marker' ...)` runs when `percentCommentLine` is enabled.
-  - `md.renderer.rules.paragraph_open` / `paragraph_close` are wrapped only when delete mode needs to suppress wrappers.
+  - `safeCoreRule(..., 'paragraph_wrapper_adjust', ...)` hides paragraph wrappers and applies paragraph classes at token level (no renderer rule override).
+
+## Runtime compilation
+- `createRuntimePlan` precomputes feature flags and `inlineProfileMask` for the current option set.
+- Inline conversion is compiled per `(inlineProfileMask + htmlEnabled bit)` and cached in `md.__inlineTokenRunnerCache`.
 
 ## Rendering flow
-- Core rule `convertInlineTokens` walks `state.tokens` and mutates inline `text` tokens in place, converting to `html_inline` only when necessary.
-- Fast-path guard: tokens are skipped unless at least one of the following is needed:
-  - inline ★/%% processing
-  - ruby conversion (`《` present)
-  - line/paragraph wrappers
-  - inline HTML context scan only when `html_inline` child tokens exist
-- Escape sentinels are normalized once per text token; forced-active/escaped indexes live in token.meta. Backslash runs are cached per token (`__backslashLookup`) to keep escape checks O(n) per token instead of per marker pair.
-- Inline ★ handling:
-  - `ensureStarPairInfo` builds open/close positions (ignores line-mode tokens and raw-text HTML tokens).
-  - `applyStarInsertionsWithRuby` inserts `<span>` for star pairs while **avoiding ruby conversion inside ★ spans**.
-  - `starInlineOpen` carries unclosed ★ state across tokens.
-- Ruby conversion:
-  - `convertRubyKnown` is applied only where needed and only when `《` exists in the segment.
-  - When inside HTML wrappers, `detectRubyWrapper` avoids double `<ruby>` tags.
-  - For HTML token conversion, ruby is skipped inside `<span class="star-comment">...</span>` regions so `★...★` internals are preserved.
-- Percent conversion:
-  - `convertPercentCommentInlineSegment` wraps %% pairs unless delete mode is on.
+- Core rule `convertInlineTokens` dispatches to a precompiled inline runner and mutates tokens in place.
+- Escape sentinels are normalized once per text token; forced-active/escaped indexes live in token.meta. Backslash runs are cached (`__backslashLookup`) to keep escape checks O(n). Sentinels use noncharacter Unicode points (`U+FDD0..U+FDD5`) to reduce collision risk with normal text/control chars.
+- `html:true`:
+  - Conversion runs only on markdown-it inline `text` tokens.
+  - Raw `html_block` / `html_inline` token contents are not reparsed or rewritten by this plugin.
+  - Inline children use `ensureInlineHtmlContext` to skip conversion inside raw-text HTML regions.
+- `html:false`:
+  - inline ★/%% preparse emits wrapper `html_inline` tokens early when inline mode is active.
+  - preparse rule advances `state.pos` in `silent` mode when it accepts a marker pair, matching markdown-it `skipToken` contract (prevents crashes in link-label scans like `a[★b★c`).
+  - text conversion keeps raw `<` / `>` masked and restored as entities so wrapper injection does not re-enable raw HTML.
+  - in ruby mode, masked `<ruby>` wrappers are restored so `<ruby>漢字《かんじ》</ruby>` remains ruby HTML output.
+- Text token conversion order:
+  - ruby (`convertRubyKnown`)
+  - star / percent conversion
+  - line/paragraph wrapper insertion
+  - HTML escaping (`escapeInlineHtml`) when needed (`&`, `<`, `>`, `"`)
+- In `html:true` inline mode (non line/paragraph, non delete), ★/%% pairing is resolved across the inline token stream, so markers can span inline HTML tags and markdown inline formatting boundaries.
+- Cross-token pairing is prioritized over markdown inline marker nesting. When boundaries would cross, formatter wrappers are hidden so output avoids crossed HTML tags.
+- Stage-1 one-pass optimization:
+  - for `html:false`, non-wrap, non-delete text segments containing both ★ and %% use `convertStarPercentInlineCombinedSegment` (single scan).
+  - other paths fall back to `convertStarCommentInlineSegment` / `convertPercentCommentInlineSegment`.
 - Line and paragraph modes:
-  - `markStarCommentLineGlobal` / `markPercentCommentLineGlobal` annotate line spans once per inline token array.
-  - line/paragraph wrapper boundaries skip raw-text HTML tokens so wrapper tags remain balanced.
-  - Line delete mode suppresses the line content and adjacent breaks (matching renderer behavior).
-  - Paragraph delete mode hides the rest of the inline tokens and sets `__starCommentParagraphDelete` / `__percentCommentParagraphDelete`.
-- HTML handling:
-  - Ruby/★/%% conversion is active in both `html_inline` and `html_block` contents whenever each feature is enabled.
-  - Inline HTML context metadata from `ensureInlineHtmlContext` is used to identify raw-text HTML regions and avoid rewriting those text tokens.
-  - Raw-text tags (`script`, `style`, `textarea`, `title`) are preserved as-is.
-  - When markdown-it runs with `html: false`, source-side raw `<` / `>` in processed inline text are masked and restored as entities so wrapper injection never re-enables raw HTML.
-- Escaping:
-  - `escapeInlineHtml` runs after conversion when `<`, `>`, or `&` exists.
-  - Tokens that need escaping are forced to `html_inline` to avoid markdown-it's default HTML escape.
+  - `markStarCommentLineGlobal` / `markPercentCommentLineGlobal` annotate spans once per inline token array.
+  - line delete mode suppresses line content and adjacent breaks.
+  - paragraph delete mode hides remaining inline tokens and sets `__starCommentParagraphDelete` / `__percentCommentParagraphDelete`.
+  - optional paragraph class mode can add class directly on `<p>` (`starCommentParagraphClass` / `percentCommentParagraphClass`) and skip inner span wrapping.
+  - `paragraph_wrapper_adjust` has a runtime gate (`md.__paragraphWrapperAdjustEnabled`) and source-marker fast skip to avoid scanning unrelated documents.
 
 ## Star-comment line metadata (core rule)
 - `ensureStarCommentLineCore` caches per-source line info in `md.__starCommentLineCache` (lines, `starFlags`, `trimmedLines`).
@@ -56,17 +58,17 @@
 - For each inline block, the first non-empty line decides whether `STAR_COMMENT_LINE_META_KEY` is set; in line mode it requires all non-empty lines in the block to be ★ lines.
 
 ## Known concerns
-- HTML token splitting uses a lightweight scanner (not a full parser). It now handles `>` inside quoted attributes plus comment/CDATA/processing-instruction terminators, but malformed tags or other edge-case HTML constructs may still confuse the split.
-- `patchInlineRulerOrder` monkey-patches the core ruler’s `push/after/before` methods per instance; plugins that expect to override those methods or force a later rule may be affected.
-- Paragraph delete mode wraps `paragraph_open`/`paragraph_close`; if another plugin replaces those renderers after this patch, the skip logic can be lost.
+- Because conversion is token-based (markdown-it output), behavior across HTML boundaries depends on markdown-it block/inline parsing (e.g. blank-line-separated content inside `<div>` can become inline tokens and thus be converted).
+- `patchCoreRulerOrderGuard` wraps core-ruler mutators; plugins that mutate `core.ruler.__rules__` directly (without mutators) bypass order-guard reordering.
 - The inline-ruler convert rule is registered once per `markdown-it` instance, but reads the latest normalized options from instance state so repeated `.use(...)` calls can reconfigure behavior safely.
 - Regex compatibility fallback is built in:
   - ruby conversion first tries Unicode property escapes (`\p{sc=Han}`) and falls back to BMP Han ranges when unavailable.
   - HTML escaping avoids regex lookbehind so older JS engines can still load the module.
 
 ## Performance notes
-- Use `node test/material/perf-inline-tokens.js` for spot checks (env: `ITER`, `REPEAT`, `REPEAT_HEAVY`).
+- Main perf check: `npm run perf` (`test/material/perf.js`).
+- Deep inline-token spot check: `node test/material/perf-inline-tokens.js` (env: `ITER`, `REPEAT`, `REPEAT_HEAVY`).
 
 ## Tests
 - Full suite: `npm test`
-- Perf spot-check: `node test/material/perf-inline-tokens.js`
+- Fixture parser in `test/test.js` is strict (label-based expected HTML matching per option profile).

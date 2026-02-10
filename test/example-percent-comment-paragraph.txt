@@ -4,6 +4,7 @@
 <p><span class="percent-comment">%%段落コメントです。</span></p>
 [HTML:delete]
 
+
 [Markdown]
 通常行です。
  
@@ -13,4 +14,3 @@
 <p><span class="percent-comment">%%この段落もコメント扱い。</span></p>
 [HTML:delete]
 <p>通常行です。</p>
-

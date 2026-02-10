@@ -47,7 +47,7 @@
 [HTML:false]
 <p>文章中の<span class="star-comment">★スター&lt;span&gt;コメ&lt;/span&gt;ント★</span>は処理されます。</p>
 [HTML:delete]
-<p>文章中のは処理されます。</p>
+<p>文章中の★スター<span>コメ</span>ント★は処理されます。</p>
 
 [Markdown]
 文章中の★スター<span>コメ</span>ント★は★処理★されます。
@@ -56,7 +56,7 @@
 [HTML:false]
 <p>文章中の<span class="star-comment">★スター&lt;span&gt;コメ&lt;/span&gt;ント★</span>は<span class="star-comment">★処理★</span>されます。</p>
 [HTML:delete]
-<p>文章中のはされます。</p>
+<p>文章中の★スター<span>コメ</span>ント処理★されます。</p>
 
 [Markdown]
 文章中の★スター<span>コメ</span>ント★は★<strong>処理</strong>されます★。
@@ -65,14 +65,14 @@
 [HTML:false]
 <p>文章中の<span class="star-comment">★スター&lt;span&gt;コメ&lt;/span&gt;ント★</span>は<span class="star-comment">★&lt;strong&gt;処理&lt;/strong&gt;されます★</span>。</p>
 [HTML:delete]
-<p>文章中のは。</p>
+<p>文章中の★スター<span>コメ</span>ント<strong>処理</strong>されます★。</p>
 
 [Markdown]
 文章中の★スター**コメ**ント★は処理されます。
 [HTML]
 <p>文章中の<span class="star-comment">★スター<strong>コメ</strong>ント★</span>は処理されます。</p>
 [HTML:delete]
-<p>文章中のは処理されます。</p>
+<p>文章中の★スター<strong>コメ</strong>ント★は処理されます。</p>
 
 [Markdown]
 文章中の★スター
@@ -81,7 +81,8 @@
 <p>文章中の<span class="star-comment">★スター
 コメント★</span>は処理されます。</p>
 [HTML:delete]
-<p>文章中のは処理されます。</p>
+<p>文章中の★スター
+コメント★は処理されます。</p>
 
 [Markdown]
 文章中の★**強調**
@@ -90,21 +91,22 @@
 <p>文章中の<span class="star-comment">★<strong>強調</strong>
 コメント★</span>は処理されます。</p>
 [HTML:delete]
-<p>文章中のは処理されます。</p>
+<p>文章中の★<strong>強調</strong>
+コメント★は処理されます。</p>
 
 [Markdown]
 文章中の★[リンク](https://example.com)★は処理されます。
 [HTML]
 <p>文章中の<span class="star-comment">★<a href="https://example.com">リンク</a>★</span>は処理されます。</p>
 [HTML:delete]
-<p>文章中のは処理されます。</p>
+<p>文章中の★<a href="https://example.com">リンク</a>★は処理されます。</p>
 
 [Markdown]
 文章中の★`コード`★は処理されます。
 [HTML]
 <p>文章中の<span class="star-comment">★<code>コード</code>★</span>は処理されます。</p>
 [HTML:delete]
-<p>文章中のは処理されます。</p>
+<p>文章中の★<code>コード</code>★は処理されます。</p>
 
 [Markdown]
 文章中の★<span>タグ</span>★は処理されます。
@@ -113,7 +115,7 @@
 [HTML:false]
 <p>文章中の<span class="star-comment">★&lt;span&gt;タグ&lt;/span&gt;★</span>は処理されます。</p>
 [HTML:delete]
-<p>文章中のは処理されます。</p>
+<p>文章中の★<span>タグ</span>★は処理されます。</p>
 
 [Markdown]
 ここでは、★この★環境では超電磁砲を変換できます★。<span>aa</span>★
@@ -122,7 +124,7 @@
 [HTML:false]
 <p>ここでは、<span class="star-comment">★この★</span>環境では超電磁砲を変換できます<span class="star-comment">★。&lt;span&gt;aa&lt;/span&gt;★</span></p>
 [HTML:delete]
-<p>ここでは、環境では超電磁砲を変換できます</p>
+<p>ここでは、環境では超電磁砲を変換できます★。<span>aa</span>★</p>
 
 [Markdown]
 ★文章中のスターコメント★は処理されます。
@@ -152,7 +154,7 @@
 [HTML:false]
 <p>文章中<span class="star-comment">★の&lt;span&gt;スターコメント&lt;/span&gt;★</span>は処理★されます。</p>
 [HTML:delete]
-<p>文章中は処理★されます。</p>
+<p>文章中★の<span>スターコメント</span>されます。</p>
 
 [Markdown]
 文章中★の<span>スターコメント</span>\★は処理されます。
@@ -184,7 +186,7 @@
 [HTML]
 <p>文章中\<span class="star-comment">★のスターコメント★</span>は処理されます。</p>
 [HTML:delete]
-<p>文章中\は処理されます。</p>
+<p>文章中は処理されます。</p>
 
 [Markdown]
 文章中\\\★のスターコメント★は処理されます。
@@ -198,30 +200,27 @@
 [HTML]
 <p>文章中\<span class="star-comment">★のスターコメント\★</span>は処理されます。</p>
 [HTML:delete]
-<p>文章中\は処理されます。</p>
-
+<p>文章中は処理されます。</p>
 
 [Markdown]
 文章中★の<span>スターコメント</span>\\★は処理されます。
 [HTML]
 <p>文章中<span class="star-comment">★の<span>スターコメント</span>\★</span>は処理されます。</p>
 [HTML:false]
-<p>文章中<span class="star-comment">★の&lt;span&gt;スターコメント&lt;/span&gt;\★</span>は処理されます。</p>
+<p>文章中<span class="star-comment">★の&lt;span&gt;スターコメント&lt;/span&gt;\\★</span>は処理されます。</p>
 [HTML:delete]
-<p>文章中は処理されます。</p>
-
+<p>文章中★の<span>スターコメント</span>\★は処理されます。</p>
 
 [Markdown]
 文章中★の<span>スターコメント</span>\\\★は処理されます。
 [HTML]
 <p>文章中★の<span>スターコメント</span>\★は処理されます。</p>
 [HTML:false]
-<p>文章中★の&lt;span&gt;スターコメント&lt;/span&gt;\★は処理されます。</p>
+<p>文章中★の&lt;span&gt;スターコメント&lt;/span&gt;\\★は処理されます。</p>
 [HTML:delete]
 <p>文章中★の<span>スターコメント</span>\★は処理されます。</p>
 [HTML:deletefalse]
-<p>文章中★の&lt;span&gt;スターコメント&lt;/span&gt;\★は処理されます。</p>
-
+<p>文章中★の&lt;span&gt;スターコメント&lt;/span&gt;\\★は処理されます。</p>
 
 [Markdown]
 文章中の`★`スターコメント`★`は処理されます。
@@ -231,12 +230,132 @@
 <p>文章中の<code>★</code>スターコメント<code>★</code>は処理されます。</p>
 
 [Markdown]
+A|★x★
+[HTML]
+<p>A|<span class="star-comment">★x★</span></p>
+[HTML:false]
+<p>A|<span class="star-comment">★x★</span></p>
+[HTML:delete]
+<p>A|</p>
+
+[Markdown]
+a<★b★
+[HTML]
+<p>a&lt;<span class="star-comment">★b★</span></p>
+[HTML:false]
+<p>a&lt;<span class="star-comment">★b★</span></p>
+
+[Markdown]
+a>★b★
+[HTML]
+<p>a&gt;<span class="star-comment">★b★</span></p>
+[HTML:false]
+<p>a&gt;<span class="star-comment">★b★</span></p>
+
+[Markdown]
+a=★b★
+[HTML]
+<p>a=<span class="star-comment">★b★</span></p>
+[HTML:false]
+<p>a=<span class="star-comment">★b★</span></p>
+
+[Markdown]
+a&★b★
+[HTML]
+<p>a&amp;<span class="star-comment">★b★</span></p>
+[HTML:false]
+<p>a&amp;<span class="star-comment">★b★</span></p>
+
+[Markdown]
+a"★b★
+[HTML]
+<p>a&quot;<span class="star-comment">★b★</span></p>
+[HTML:false]
+<p>a&quot;<span class="star-comment">★b★</span></p>
+
+[Markdown]
+a'★b★
+[HTML]
+<p>a'<span class="star-comment">★b★</span></p>
+[HTML:false]
+<p>a'<span class="star-comment">★b★</span></p>
+
+[Markdown]
+**a"★b**c★
+[HTML]
+<p>a&quot;<span class="star-comment">★bc★</span></p>
+[HTML:false]
+<p>**a&quot;<span class="star-comment">★b**c★</span></p>
+
+[Markdown]
+a<%%b%%
+[HTML]
+<p>a&lt;<span class="percent-comment">%%b%%</span></p>
+[HTML:false]
+<p>a&lt;<span class="percent-comment">%%b%%</span></p>
+
+[Markdown]
+a>%%b%%
+[HTML]
+<p>a&gt;<span class="percent-comment">%%b%%</span></p>
+[HTML:false]
+<p>a&gt;<span class="percent-comment">%%b%%</span></p>
+
+[Markdown]
+a=%%b%%
+[HTML]
+<p>a=<span class="percent-comment">%%b%%</span></p>
+[HTML:false]
+<p>a=<span class="percent-comment">%%b%%</span></p>
+
+[Markdown]
+a&%%b%%
+[HTML]
+<p>a&amp;<span class="percent-comment">%%b%%</span></p>
+[HTML:false]
+<p>a&amp;<span class="percent-comment">%%b%%</span></p>
+
+[Markdown]
+a"%%b%%
+[HTML]
+<p>a&quot;<span class="percent-comment">%%b%%</span></p>
+[HTML:false]
+<p>a&quot;<span class="percent-comment">%%b%%</span></p>
+
+[Markdown]
+**a"%%b**c%%
+[HTML]
+<p>a&quot;<span class="percent-comment">%%bc%%</span></p>
+[HTML:false]
+<p>**a&quot;<span class="percent-comment">%%b**c%%</span></p>
+
+[Markdown]
+a'%%b%%
+[HTML]
+<p>a'<span class="percent-comment">%%b%%</span></p>
+[HTML:false]
+<p>a'<span class="percent-comment">%%b%%</span></p>
+
+[Markdown]
+a[★b★c
+[HTML]
+<p>a[<span class="star-comment">★b★</span>c</p>
+[HTML:false]
+<p>a[<span class="star-comment">★b★</span>c</p>
+
+[Markdown]
+a[%%b%%c
+[HTML]
+<p>a[<span class="percent-comment">%%b%%</span>c</p>
+[HTML:false]
+<p>a[<span class="percent-comment">%%b%%</span>c</p>
+
+[Markdown]
 ★開始`★`コード内でも閉じません。
 [HTML]
 <p>★開始<code>★</code>コード内でも閉じません。</p>
 [HTML:delete]
 <p>★開始<code>★</code>コード内でも閉じません。</p>
-
 
 [Markdown]
 aaa><aaa
@@ -266,7 +385,6 @@ aaa&lt;&gt;aaa
 [HTML:delete]
 <p>aaa&lt;&gt;aaa</p>
 
-
 [Markdown]
 aaa&lt;/&gt;aaa
 [HTML]
@@ -280,7 +398,6 @@ aaa&lt;/&gt;aaa
 <p>&lt;e/ee&gt;</p>
 [HTML:delete]
 <p>&lt;e/ee&gt;</p>
-
 
 [Markdown]
 &lt;e/ee&gt;

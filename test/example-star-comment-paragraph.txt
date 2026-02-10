@@ -35,7 +35,7 @@
 [Markdown]
 ★文頭の★スターコメントは<span>その行</span>がコメント★と処理されます。
 [HTML]
-<p><span class="star-comment">★文頭の★スターコメントは<span>その行</span>がコメント★と処理されます。</span></p>
+<p><span class="star-comment"><span class="star-comment">★文頭の★</span>スターコメントは<span>その行</span>がコメント★と処理されます。</span></p>
 [HTML:false]
 <p><span class="star-comment">★文頭の★スターコメントは&lt;span&gt;その行&lt;/span&gt;がコメント★と処理されます。</span></p>
 [HTML:delete]
@@ -48,16 +48,14 @@
 [HTML:delete]
 
 
-
 [Markdown]
 \★文頭の★スターコメントは<span>その行</span>がコメント★と処理されます。
 [HTML]
-<p>★文頭の<span class="star-comment">★スターコメントは<span>その行</span>がコメント★</span>と処理されます。</p>
+<p>★文頭の★スターコメントは<span>その行</span>がコメント★と処理されます。</p>
 [HTML:false]
-<p>★文頭の<span class="star-comment">★スターコメントは&lt;span&gt;その行&lt;/span&gt;がコメント★</span>と処理されます。</p>
+<p>★文頭の★スターコメントは&lt;span&gt;その行&lt;/span&gt;がコメント★と処理されます。</p>
 [HTML:delete]
-<p>★文頭のと処理されます。</p>
-
+<p>★文頭の★スターコメントは<span>その行</span>がコメント★と処理されます。</p>
 
 [Markdown]
 - ★リストコメント

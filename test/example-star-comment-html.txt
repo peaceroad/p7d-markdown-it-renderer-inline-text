@@ -1,12 +1,11 @@
 [Markdown]
 <p>HTMLブロック内★スターコメント★</p>
 [HTML]
-<p>HTMLブロック内<span class="star-comment">★スターコメント★</span></p>
+<p>HTMLブロック内★スターコメント★</p>
 [HTML:html]
-<p>HTMLブロック内<span class="star-comment">★スターコメント★</span></p>
+<p>HTMLブロック内★スターコメント★</p>
 [HTML:delete]
-<p>HTMLブロック内</p>
-
+<p>HTMLブロック内★スターコメント★</p>
 
 [Markdown]
 段落内の<span class="callout">★スターコメント★</span>も対象。
@@ -17,7 +16,6 @@
 [HTML:delete]
 <p>段落内の<span class="callout"></span>も対象。</p>
 
-
 [Markdown]
 説明文<span class="outer"><em>★HTML内コメント★</em></span>終わり。
 [HTML]
@@ -26,7 +24,6 @@
 <p>説明文<span class="outer"><em><span class="star-comment">★HTML内コメント★</span></em></span>終わり。</p>
 [HTML:delete]
 <p>説明文<span class="outer"><em></em></span>終わり。</p>
-
 
 [Markdown]
 前半★テキストコメント★<span class="inner">HTML内の★コメント★</span>後半★末尾コメント★。
@@ -37,7 +34,6 @@
 [HTML:delete]
 <p>前半<span class="inner">HTML内の</span>後半。</p>
 
-
 [Markdown]
 <div class="wrapper">
   <p>HTMLブロックの★コメント★です。</p>
@@ -47,49 +43,46 @@
 後段落の★通常コメント★も確認。
 [HTML]
 <div class="wrapper">
-  <p>HTMLブロックの<span class="star-comment">★コメント★</span>です。</p>
-  <p>通常テキストの<span class="star-comment">★コメント★</span>もあります。</p>
+  <p>HTMLブロックの★コメント★です。</p>
+  <p>通常テキストの★コメント★もあります。</p>
 </div>
 <p>後段落の<span class="star-comment">★通常コメント★</span>も確認。</p>
 [HTML:html]
 <div class="wrapper">
-  <p>HTMLブロックの<span class="star-comment">★コメント★</span>です。</p>
-  <p>通常テキストの<span class="star-comment">★コメント★</span>もあります。</p>
+  <p>HTMLブロックの★コメント★です。</p>
+  <p>通常テキストの★コメント★もあります。</p>
 </div>
 <p>後段落の<span class="star-comment">★通常コメント★</span>も確認。</p>
 [HTML:delete]
 <div class="wrapper">
-  <p>HTMLブロックのです。</p>
-  <p>通常テキストのもあります。</p>
+  <p>HTMLブロックの★コメント★です。</p>
+  <p>通常テキストの★コメント★もあります。</p>
 </div>
 <p>後段落のも確認。</p>
-
 
 [Markdown]
 <p>HTMLブロック内★スターコメント★。漢字《かんじ》</p>
 [HTML]
-<p>HTMLブロック内<span class="star-comment">★スターコメント★</span>。<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby></p>
+<p>HTMLブロック内★スターコメント★。漢字《かんじ》</p>
 [HTML:html]
-<p>HTMLブロック内<span class="star-comment">★スターコメント★</span>。<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby></p>
+<p>HTMLブロック内★スターコメント★。漢字《かんじ》</p>
 [HTML:delete]
-<p>HTMLブロック内。<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby></p>
-
+<p>HTMLブロック内★スターコメント★。漢字《かんじ》</p>
 
 [Markdown]
 <p class="inline-html">HTML内の漢字《かんじ》にも★スターコメント★があります。</p>
 [HTML]
-<p class="inline-html">HTML内の<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>にも<span class="star-comment">★スターコメント★</span>があります。</p>
+<p class="inline-html">HTML内の漢字《かんじ》にも★スターコメント★があります。</p>
 [HTML:html]
-<p class="inline-html">HTML内の<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>にも<span class="star-comment">★スターコメント★</span>があります。</p>
+<p class="inline-html">HTML内の漢字《かんじ》にも★スターコメント★があります。</p>
 [HTML:delete]
-<p class="inline-html">HTML内の<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>にもがあります。</p>
-
+<p class="inline-html">HTML内の漢字《かんじ》にも★スターコメント★があります。</p>
 
 [Markdown]
 <p><a title=">★属性★">リンク★本文★</a>と漢字《かんじ》と%%パー%%。</p>
 [HTML]
-<p><a title=">★属性★">リンク<span class="star-comment">★本文★</span></a>と<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>と<span class="percent-comment">%%パー%%</span>。</p>
+<p><a title=">★属性★">リンク★本文★</a>と漢字《かんじ》と%%パー%%。</p>
 [HTML:html]
-<p><a title=">★属性★">リンク<span class="star-comment">★本文★</span></a>と<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>と<span class="percent-comment">%%パー%%</span>。</p>
+<p><a title=">★属性★">リンク★本文★</a>と漢字《かんじ》と%%パー%%。</p>
 [HTML:delete]
-<p><a title=">★属性★">リンク</a>と<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>と<span class="percent-comment">%%パー%%</span>。</p>
+<p><a title=">★属性★">リンク★本文★</a>と漢字《かんじ》と%%パー%%。</p>

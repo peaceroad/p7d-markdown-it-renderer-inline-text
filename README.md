@@ -1,282 +1,281 @@
 # p7d-markdown-it-renderer-inline-text
 
-A markdown-it plugin. This plugin modify inline text of rendering HTML:
+Inline text transform plugin for markdown-it.
 
-- Ruby (漢字《かんじ》)
-- Star comment (`★コメント★`)
-- Percent comment (`%% Comment %%`)
+It adds:
+
+- Ruby conversion (`漢字《かんじ》`)
+- Star comments (`★...★`)
+- Percent comments (`%%...%%`)
+
+## Quick Start
+
+```js
+import mdit from 'markdown-it'
+import mditRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
+
+// Even with html:false, ruby/star/percent transforms work.
+const md = mdit({ html: true }).use(mditRendererInlineText, {
+  ruby: true,
+  starComment: true,
+  percentComment: true,
+})
+
+console.log(md.render('今夜は★カツ★カレーです。'))
+// <p>今夜は<span class="star-comment">★カツ★</span>カレーです。</p>
+
+console.log(md.render('今日は甘味処が%%午後%%休みです。'))
+// <p>今日は甘味処が<span class="percent-comment">%%午後%%</span>休みです。</p>
+
+console.log(md.render('昼食は親子丼《おやこどん》です。'))
+// <p>昼食は<ruby>親子丼<rp>《</rp><rt>おやこどん</rt><rp>》</rp></ruby>です。</p>
+```
+
+## Ruby Syntax
+
+Ruby conversion is based on:
+
+- `(<ruby>)?([Han + 0-9A-Za-z._-]+)《reading》(<\/ruby>)?`
+
+Examples:
+
+```
+Input: 寿司は職人《しょくにん》の技です。
+Output: <p>寿司は<ruby>職人<rp>《</rp><rt>しょくにん</rt><rp>》</rp></ruby>の技です。</p>
+
+Input: 商品名はRAMEN2025《らーめんにーぜろにーごー》です。
+Output: <p>商品名は<ruby>RAMEN2025<rp>《</rp><rt>らーめんにーぜろにーごー</rt><rp>》</rp></ruby>です。</p>
+```
+
+When the base text has long kanji runs or includes hiragana/katakana, use explicit `<ruby>...</ruby>` for predictable wrapping:
+
+```md
+Input: お店の名物<ruby>鯛茶漬《たいちゃづけ》</ruby>を紹介します。
+Output: <p>お店の名物<ruby>鯛茶漬<rp>《</rp><rt>たいちゃづけ</rt><rp>》</rp></ruby>を紹介します。</p>
+```
+
+Ruby shorthand conversion works in both `html:true` and `html:false`. With `html:false`, HTML-like input is generally escaped, while ruby shorthand and explicit `<ruby>...</ruby>` wrappers are still rendered as ruby HTML.
+
+`html:false` example:
+
+```md
+Input:案内文：<ruby>寿司《すし》</ruby>を掲載します。
+Output:<p>案内文：<ruby>寿司<rp>《</rp><rt>すし</rt><rp>》</rp></ruby>を掲載します。</p>
+```
+
+## ★ / %% Comment Syntax
+
+Both syntaxes are pair-based markers:
+
+- Star: `★...★` -> `<span class="star-comment">...</span>`
+- Percent: `%%...%%` -> `<span class="percent-comment">...</span>` (or custom class)
+
+Behavior summary (without examples):
+
+- Pair matching is per marker type, so `★...★` and `%%...%%` are handled independently.
+- Escaped markers (odd backslash parity) stay as plain text.
+- In default span mode, matched ranges are wrapped and preserved in output.
+- In delete mode, only the enabled marker type is removed from output.
+- In `html:true`, marker pairing can cross inline-token boundaries.
+
+### Escape Markers
+
+```md
+Input:料理名は\★限定★ではありません。
+Output:<p>料理名は★限定★ではありません。</p>
+
+Input:今日の注記は\%%内輪%%ではありません。
+Output:<p>今日の注記は%%内輪%%ではありません。</p>
+```
+
+### Span Element (Default)
+
+Basic:
+
+```
+Input: 蕎麦は★売り切れ次第終了です。★美味しいです。
+Output: <p>蕎麦は<span class="star-comment">★売り切れ次第終了です。★</span>美味しいです。</p>
+
+Input: 喫茶店に%%季節限定の%%パフェがあります。
+Output: <p>喫茶店に<span class="percent-comment">%%季節限定の%%</span>パフェがあります。</p>
+
+Input: 今日は★**本日のおすすめ**の★ハンバーグを注文します。
+Output: <p>今日は<span class="star-comment">★**本日のおすすめ**の★</span>ハンバーグを注文します。</p>
+```
+
+In `html:true`, pairing can cross inline boundaries:
+
+```md
+Input: メニューから★<span>だし</span>香る★うどんを選びます。
+Output: <p>メニューから<span class="star-comment">★<span>だし</span>香る★</span>うどんを選びます。</p>
+```
+
+Marker priority is high. In default `html:false` preparse mode, crossed markdown formatter markers stay literal inside the wrapped range:
+
+```
+Input: **春★御膳**定★食を案内します。
+Output: <p>**春<span class="star-comment">★御膳**定★</span>食を案内します。</p>
+```
+
+In `html:true`, the same input is normalized by dropping the crossed formatter wrapper:
+
+```md
+Input: **春★御膳**定★食を案内します。
+Output: <p>春<span class="star-comment">★御膳定★</span>食を案内します。</p>
+```
+
+### Delete option
+
+`starCommentDelete` and `percentCommentDelete` are independent:
+
+- `starCommentDelete: true` removes only `★...★` ranges.
+- `percentCommentDelete: true` removes only `%%...%%` ranges.
+
+```js
+const md = MarkdownIt().use(rendererInlineText, {
+  starComment: true,
+  starCommentDelete: true,
+  percentComment: true,
+  percentCommentDelete: true,
+})
+
+console.log(md.render('カレーのメインは%%海老%%鶏肉です。'))
+// <p>カレーのメインは鶏肉です。</p>
+console.log(md.render('カレーのメインは★あさり★マトンです。'))
+// <p>カレーのメインはマトンです。</p>
+```
+
+### Line and Paragraph Mode
+
+Line mode example:
+
+Options:`{ starComment: true, starCommentLine: true }`
+
+```md
+Input:
+通常案内
+★売り切れ注意
+通常案内
+Output:<p>通常案内
+<span class="star-comment">★売り切れ注意</span>
+通常案内</p>
+```
+
+Percent comments follow the same line/paragraph behaviors with `percentCommentLine`, `percentCommentParagraph`, and `percentCommentParagraphClass`.
+
+Paragraph mode example:
+
+Options:`{ starComment: true, starCommentParagraph: true }`
+
+```md
+Input:★本日は売り切れ次第終了です。
+Output:<p><span class="star-comment">★本日は売り切れ次第終了です。</span></p>
+```
+
+Paragraph-only class example:
+
+Options:`{ starComment: true, starCommentParagraph: true, starCommentParagraphClass: true }`
+
+```md
+Input:★本日は売り切れ次第終了です。
+Output:<p class="star-comment">★本日は売り切れ次第終了です。</p>
+```
+
+## Options
+
+- `ruby` (default: `false`)
+  Enable ruby conversion.
+
+- `starComment` (default: `false`)
+  Enable `★...★` comments.
+
+- `starCommentDelete` (default: `false`)
+  Delete star-comment spans instead of rendering them.
+
+- `starCommentParagraph` (default: `false`)
+  Paragraph mode for stars (paragraph starts with `★`).
+
+- `starCommentLine` (default: `false`)
+  Line mode for stars (editor line starts with `★`).
+
+- `starCommentParagraphClass` (default: `false`)
+  In star paragraph mode, add class to `<p>` and skip inner span wrapping. `true` uses `"star-comment"`, and a string uses that class name.
+
+- `percentComment` (default: `false`)
+  Enable `%%...%%` comments.
+
+- `percentCommentDelete` (default: `false`)
+  Delete percent-comment spans instead of rendering them.
+
+- `percentCommentParagraph` (default: `false`)
+  Paragraph mode for percents (paragraph starts with `%%`).
+
+- `percentCommentLine` (default: `false`)
+  Line mode for percents (editor line starts with `%%`).
+
+- `percentCommentParagraphClass` (default: `false`)
+  In percent paragraph mode, add class to `<p>` and skip inner span wrapping. `true` uses `percentClass`, and a string uses that class name.
+
+- `percentClass` (default: `"percent-comment"`)
+  CSS class for percent-comment spans.
+
+Notes:
+
+- If `starCommentLine` is `true`, `starCommentParagraph` is disabled.
+- If `percentCommentLine` is `true`, `percentCommentParagraph` is disabled.
+- `percentClass` is escaped via `md.utils.escapeHtml`.
+
+## Notes
+
+### Rule Details
+
+- Escape parity rule:
+  - Odd number of backslashes before marker: marker is escaped.
+  - Even number: marker can participate in pairing.
+- In `html:false`, inline preparse handles star/percent pairs early.
+- In `html:true` normal inline mode, cross-token marker pairing is enabled.
+- If a marker pair crosses markdown formatter boundaries (for example, `**...★ ... ** ... ★...`), the formatter wrapper is dropped to avoid crossed HTML tags.
+- Ruby conversion runs on text tokens and can appear inside star/percent spans in `html:true`.
+- In `html:false`, star/percent preparse wraps markers as HTML spans first, so ruby is typically outside those wrapped ranges.
+
+### HTML Boundary Behavior
+
+- With `html:true`, conversion targets markdown-it inline `text` tokens.
+- Raw `html_block` token bodies are not rewritten by this plugin.
+- HTML attributes are not rewritten.
+- Raw-text elements are skipped: `script`, `style`, `textarea`, `title`.
+- With `html:false`, HTML-like input is treated as text and escaped, but marker/ruby transforms still apply. Explicit `<ruby>...</ruby>` wrappers used with ruby shorthand are preserved.
+
+Block/inline example:
+
+```
+Input: <div>店内に★売り切れ注意の★張り紙が貼ってあります。</div>
+Output: <div>店内に★売り切れ注意の★張り紙が貼ってあります。</div>
+
+Input:
+<div>
+
+店内に★売り切れ注意の★張り紙が貼ってあります。
+
+</div>
+
+Output:
+<div>
+<p>店内に<span class="star-comment">★売り切れ注意の★</span>張り紙が貼ってあります。</p>
+</div>
+```
+
+### markdown-it Compatibility
+
+- The plugin runs as a core rule and may rewrite `text` tokens to `html_inline`.
+- If another plugin expects raw `text` only, run that plugin earlier or support `html_inline`.
+- Designed to coexist with `text_join` / `cjk_breaks` by forcing conversion at the tail of core processing.
+- Reusing `.use(plugin, options)` on the same markdown-it instance updates active options.
 
 ## Install
 
-```samp
+```bash
 npm i @peaceroad/markdown-it-renderer-inline-text
 ```
 
 This package is ESM (`"type": "module"`).
-
-## Ruby
-
-- Match: `(<ruby>)?([\p{sc=Han}0-9A-Za-z.\-_]+)《([^》]+?)》(<\/ruby>)?/u`
-- Replace: `<ruby>$2<rp>《</rp><rt>$3</rt><rp>》</rp></ruby>`
-
-### Use
-
-```js
-import MarkdownIt from 'markdown-it'
-import mditRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
-
-const md = MarkdownIt({ html: true }).use(mditRendererInlineText, { ruby: true })
-
-console.log(md.render('この環境では超電磁砲《レールガン》を変換できます。'))
-//<p>この環境では<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>を変換できます。</p>
-
-console.log(md.render('ここには高出力<ruby>超電磁砲《レールガン》</ruby>が装備されています。'))
-//<p>ここには高出力<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>が装備されています。</p>
-```
-
-Notice. With `html: false`, raw HTML-like input is escaped by markdown-it, but ruby markers are still converted in text (including inputs like `<ruby>漢字《かんじ》</ruby>`).
-
-With `html: true`, ruby conversion applies to HTML text nodes (between tags). Tag internals such as attribute values are left untouched.
-
-Ruby marker conversion targets the base-text class in the regex above. If your base includes spaces/kana/symbols, write full ruby HTML explicitly:
-
-```js
-const md = MarkdownIt({ html: true }).use(mditRendererInlineText, { ruby: true })
-
-console.log(md.render('語句: <ruby>かな 混在<rp>(</rp><rt>かなこんざい</rt><rp>)</rp></ruby>'))
-//<p>語句: <ruby>かな 混在<rp>(</rp><rt>かなこんざい</rt><rp>)</rp></ruby></p>
-```
-
-### Example
-
-```
-[Markdown]
-この環境では超電磁砲《レールガン》を変換できます。
-[HTML]
-<p>この環境では<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>を変換できます。</p>
-
-[Markdown]
-ここには高出力<ruby>超電磁砲《レールガン》</ruby>が装備されています。
-[HTML]
-<p>ここには高出力<ruby>超電磁砲<rp>《</rp><rt>レールガン</rt><rp>》</rp></ruby>が装備されています。</p>
-
-[Markdown]
-CSSはW3C《だぶるさんしー》は策定しています。
-[HTML]
-<p>CSSは<ruby>W3C<rp>《</rp><rt>だぶるさんしー</rt><rp>》</rp></ruby>は策定しています。</p>
-
-[Markdown]
-CSSは非営利団体<ruby>W3C《だぶるさんしー》</ruby>は策定しています。
-[HTML]
-<p>CSSは非営利団体<ruby>W3C<rp>《</rp><rt>だぶるさんしー</rt><rp>》</rp></ruby>は策定しています。</p>
-```
-
-## Star Comment
-
-The following string is considered a comment.
-
-- There is a ★ at the beginning of the paragraph line.
-- Strings surrounded by ★
-- Replace: `<span class="star-comment">$1</span>`
-
-With `html: true`, ★ comments in HTML text nodes (between tags) are converted by default. Attribute values are not rewritten.
-
-### Basic use
-
-```js
-import MarkdownIt from 'markdown-it'
-import mditRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
-
-const md = MarkdownIt().use(mditRendererInlineText, {
-  starComment: true,
-})
-
-console.log(md.render('文章中の★スターコメント★は処理されます。'))
-//<p>文章中の<span class="star-comment">★スターコメント★</span>は処理されます。</p>
-
-console.log(md.render('スターは\★と書けばコメント扱いされません★。'))
-//<p>スターは★と書けばコメント扱いされません★。</p>
-```
-
-Inline HTML such as `<span>★…★</span>` is converted in text nodes by default when `html: true`, while tag attributes stay untouched.
-
-When `starComment` and `ruby` are both enabled, ruby conversion intentionally runs only outside `★...★` spans.
-
-```js
-import MarkdownIt from 'markdown-it'
-import mditRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
-
-const md = MarkdownIt({ html: true }).use(mditRendererInlineText, {
-  starComment: true,
-  ruby: true,
-})
-
-console.log(md.render('段落内の<span class="note">★スターコメント★</span>も対象です。'))
-//<p>段落内の<span class="note"><span class="star-comment">★スターコメント★</span></span>も対象です。</p>
-
-console.log(md.render('<p>HTMLブロック内★スターコメント★。漢字《かんじ》</p>'))
-//<p>HTMLブロック内<span class="star-comment">★スターコメント★</span>。<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby></p>
-```
-
-`starCommentDelete` also works inside HTML text nodes, so inline HTML spans or block-level HTML snippets containing ★ comments disappear when deletion mode is enabled.
-
-For safety, raw-text HTML elements (`script`, `style`, `textarea`, `title`) are never rewritten.
-
-### Paragraph comments (`starCommentParagraph`)
-
-```js
-import MarkdownIt from 'markdown-it'
-import mdRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
-
-const md = MarkdownIt().use(mdRendererInlineText, {
-  starComment: true,
-  starCommentParagraph: true,
-})
-
-console.log(md.render('文章中の★スターコメント★は処理されます。'))
-//<p>文章中の<span class="star-comment">★スターコメント★</span>は処理されます。</p>
-console.log(md.render('★文頭にスターがあるとその段落をコメント段落として処理します。'))
-//<p>文章中の<span class="star-comment">★文頭にスターがあるとその段落をコメント段落として処理します。</span></p>
-```
-
-### Line comments (`starCommentLine`)
-
-`starCommentLine` treats every editor line that begins with ★ as a star comment, even if the paragraph continues on other lines. Lines rendered inside fenced code blocks or math blocks are ignored so snippets remain untouched. Combine it with `starCommentDelete` when you want to strip those lines entirely.
-
-When `starCommentLine` and `starCommentParagraph` are both enabled, line comments take precedence and paragraph comment mode is ignored.
-
-```js
-md().use(mdRendererInlineText, {
-  starComment: true,
-  starCommentLine: true,
-})
-```
-
-```
-[Markdown]
-この行は通常行です。
-★この行はスターコメント行です。
-この行は通常行です。
-[HTML]
-<p>この行は通常行です。この行は通常行です。</p>
-```
-
-### Escaping ★
-
-Backslash escaping now mirrors Markdown: an odd number of `\` characters directly before ★ escapes it (one backslash is consumed), and an even number keeps the comment active while collapsing pairs of backslashes. `%` comment markers (`%%`) follow the same rules when enabled.
-
-Escape handling is captured during inline parsing before markdown-it's own escape rule runs, and backslash runs are cached per text token so counting escapes stays fast even on long lines.
-
-```
-[Markdown]
-文章中★のスターコメント\★は処理されます。
-[HTML]
-<p>文章中★のスターコメント★は処理されます。</p>
-
-[Markdown]
-文章中★のスターコメント\\★は処理されます。
-[HTML]
-<p>文章中<span class="star-comment">★のスターコメント\★</span>は処理されます。</p>
-
-[Markdown]
-文章中★のスターコメント\\\★は処理されます。
-[HTML]
-<p>文章中★のスターコメント\★は処理されます。</p>
-```
-
-### Delete star comment
-
-Delete star comment output entirely.
-
-```js
-import MarkdownIt from 'markdown-it'
-import mdRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
-
-const md = MarkdownIt().use(mdRendererInlineText, {
-  starComment: true,
-  starCommentParagraph: true,
-  starCommentDelete: true,
-})
-
-console.log(md.render('文章中の★スターコメント★は処理されます。'))
-//<p>文章中のは処理されます。</p>
-
-console.log(md.render('★この段落はコメントとみなします。'))
-// '' (Deleted paragraph element.)
-```
-
-Enable `starCommentLine: true` together with `starCommentDelete` when you want to drop entire ★ lines regardless of paragraph boundaries.
-List items that begin with ★ are also removed when `starCommentParagraph` runs with `starCommentDelete`, so comment-only bullets don’t leave empty markers.
-★ comments inside inline HTML (e.g. `<span>★…★</span>`) are removed as well when deletion is enabled.
-
-## Percent Comment
-
-Strings wrapped with `%%` become percent comments. `percentCommentDelete: true` removes only percent comments, while `starCommentDelete: true` removes only star comments. `percentComment: false` leaves the raw markers unchanged. Customize the span class with `percentClass` (default: `percent-comment`). With `html: true`, percent markers in HTML text nodes are converted by default (attributes are not rewritten).
-
-Paragraph-level percent comments are supported when `percentCommentParagraph: true`; if a paragraph starts with `%%`, the whole paragraph body is wrapped (or removed when deletion flags are on). Line-level percent comments are supported when `percentCommentLine: true`; any editor line starting with `%%` is wrapped (or removed under delete flags). Paragraph mode is ignored when line mode is on.
-
-```js
-md().use(mdRendererInlineText, {
-  starComment: true,
-  percentComment: true,
-})
-
-md({ html: true }).use(mdRendererInlineText, {
-  starComment: true,
-  percentComment: true,
-  percentCommentDelete: true, // removes only %%...%%
-})
-
-md().use(mdRendererInlineText, {
-  starComment: true,
-  starCommentDelete: true,
-  percentComment: true,
-})
-// `starCommentDelete: true` removes only ★...★
-```
-
-Example:
-
-```
-[Markdown]
-前%%コメント%%後
-[HTML]
-<p>前<span class="percent-comment">%%コメント%%</span>後</p>
-
-[Markdown]
-前%%コメント%%後
-[HTML:delete]
-<p>前後</p>
-
-[Markdown]
-前%%コメント%%後
-[HTML:starCommentDelete]
-<p>前<span class="percent-comment">%%コメント%%</span>後</p>
-```
-
-## Compatibility
-
-This plugin runs as a core rule after `text_join` / `cjk_breaks` and may rewrite `text` tokens to `html_inline` when it injects spans or escapes HTML. If you have post-processing plugins that expect raw `text` tokens, run them before this plugin or make them handle `html_inline`.
-
-`starCommentLine` uses line breaks as they exist after core processing. Plugins that normalize or remove softbreaks (for example, `markdown-it-cjk-breaks-mod` in `either` or `normalizeSoftBreaks` mode) can merge lines, so a line that begins with ★ in the source may not be treated as a line comment after normalization.
-
-Calling `.use(plugin, options)` again on the same `markdown-it` instance updates this plugin's active options; the conversion core rule is kept single-registered and reads the latest options from instance state.
-
-With `html: false`, raw HTML from Markdown source is escaped even when this plugin injects inline wrappers (`★...★`, `%%...%%`, ruby tags). Ruby markers still convert in text, so `<ruby>漢字《かんじ》</ruby>` renders as escaped outer tags plus expanded ruby markup.
-
-Behavior summary:
-
-| markdown-it option | HTML text nodes (between tags) | Tag attributes | Raw-text tags (`script/style/textarea/title`) | Ruby inside `★...★` |
-| --- | --- | --- | --- | --- |
-| `html: false` | Source is treated as text; markers can convert, then `<` / `>` are escaped | N/A (tags are not parsed as HTML) | N/A (same reason) | Not converted inside star span; outside star can convert |
-| `html: true` | Converted for ruby/★/%% when each option is enabled | Never rewritten | Preserved as-is | Not converted inside star span; outside star can convert |
-
-Runtime requirements: modern engines are recommended, but the plugin now includes fallbacks for environments without regex lookbehind and without Unicode property escapes (ruby fallback uses BMP Han ranges).
-
-Breaking change: `insideHtml` option was removed. Passing `insideHtml` now throws during plugin initialization.
-
-## Testing and performance
-
-- Run all fixtures: `npm test`
-- Run the simple benchmark (env vars: `ITER`, `REPEAT`): `npm run perf`
-- Run the inline-token benchmark (env vars: `ITER`, `REPEAT`, `REPEAT_HEAVY`): `node test/material/perf-inline-tokens.js`

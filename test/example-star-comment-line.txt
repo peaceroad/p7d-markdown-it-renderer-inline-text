@@ -10,7 +10,6 @@
 <p>一行目
 三行目</p>
 
-
 [Markdown]
 ★先頭コメント
 本文の続き
@@ -20,7 +19,6 @@
 [HTML:delete]
 <p>本文の続き</p>
 
-
 [Markdown]
 本文が続きます
 ★末尾コメント
@@ -29,7 +27,6 @@
 <span class="star-comment">★末尾コメント</span></p>
 [HTML:delete]
 <p>本文が続きます</p>
-
 
 [Markdown]
 ★一つ目のコメント
@@ -42,7 +39,6 @@
 [HTML:delete]
 <p>通常行</p>
 
-
 [Markdown]
 	★コードブロック
 通常行
@@ -54,7 +50,6 @@
 <pre><code>★コードブロック
 </code></pre>
 <p>通常行</p>
-
 
 [Markdown]
 この行は通常行です。

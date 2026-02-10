@@ -5,12 +5,9 @@
 [HTML:delete]
 <p><ruby>文章中<rp>《</rp><rt>ぶんしょうちゅう</rt><rp>》</rp></ruby>のは処理されます。</p>
 
-
 [Markdown]
 この★文章中《ぶんしょうちゅう》のスターコメント★は処理されます。
 [HTML]
 <p>この<span class="star-comment">★文章中《ぶんしょうちゅう》のスターコメント★</span>は処理されます。</p>
 [HTML:delete]
 <p>このは処理されます。</p>
-
-
