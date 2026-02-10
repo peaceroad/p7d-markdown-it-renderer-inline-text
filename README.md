@@ -76,7 +76,7 @@ Behavior summary (without examples):
 - Escaped markers (odd backslash parity) stay as plain text.
 - In default span mode, matched ranges are wrapped and preserved in output.
 - In delete mode, only the enabled marker type is removed from output.
-- In `html:true`, marker pairing can cross inline-token boundaries.
+- In inline mode, marker ranges are fixed by preparse before markdown inline formatting.
 
 ### Escape Markers
 
@@ -103,25 +103,18 @@ Input: 今日は★**本日のおすすめ**の★ハンバーグを注文しま
 Output: <p>今日は<span class="star-comment">★**本日のおすすめ**の★</span>ハンバーグを注文します。</p>
 ```
 
-In `html:true`, pairing can cross inline boundaries:
+In `html:true`, inline HTML inside a marker range is kept as HTML:
 
 ```md
 Input: メニューから★<span>だし</span>香る★うどんを選びます。
 Output: <p>メニューから<span class="star-comment">★<span>だし</span>香る★</span>うどんを選びます。</p>
 ```
 
-Marker priority is high. In default `html:false` preparse mode, crossed markdown formatter markers stay literal inside the wrapped range:
+Marker priority is high in inline mode (`html:true` / `html:false`): markdown syntax inside marker ranges stays literal.
 
 ```
 Input: **春★御膳**定★食を案内します。
 Output: <p>**春<span class="star-comment">★御膳**定★</span>食を案内します。</p>
-```
-
-In `html:true`, the same input is normalized by dropping the crossed formatter wrapper:
-
-```md
-Input: **春★御膳**定★食を案内します。
-Output: <p>春<span class="star-comment">★御膳定★</span>食を案内します。</p>
 ```
 
 ### Delete option
@@ -232,11 +225,9 @@ Notes:
 - Escape parity rule:
   - Odd number of backslashes before marker: marker is escaped.
   - Even number: marker can participate in pairing.
-- In `html:false`, inline preparse handles star/percent pairs early.
-- In `html:true` normal inline mode, cross-token marker pairing is enabled.
-- If a marker pair crosses markdown formatter boundaries (for example, `**...★ ... ** ... ★...`), the formatter wrapper is dropped to avoid crossed HTML tags.
-- Ruby conversion runs on text tokens and can appear inside star/percent spans in `html:true`.
-- In `html:false`, star/percent preparse wraps markers as HTML spans first, so ruby is typically outside those wrapped ranges.
+- In inline mode (`html:true` / `html:false`), preparse handles star/percent pairs first.
+- Markdown inline syntax inside a marker range is kept literal (for example, `★**bold**★`, `★\`code\`★`, `★[link](...)★`).
+- Ruby conversion runs on text tokens; when marker preparse has already wrapped a range, ruby conversion does not rewrite inside that wrapped marker content.
 
 ### HTML Boundary Behavior
 

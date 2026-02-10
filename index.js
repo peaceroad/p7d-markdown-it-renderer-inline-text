@@ -440,7 +440,9 @@ const countBackslashesBefore = (text, index) => {
 
 const createBackslashLookup = (text) => {
   if (!text || text.indexOf('\\') === -1) return null
-  const run = new Uint16Array(text.length + 1)
+  const run = text.length > 0xFFFF
+    ? new Uint32Array(text.length + 1)
+    : new Uint16Array(text.length + 1)
   let streak = 0
   for (let i = 0; i < text.length; i++) {
     if (text.charCodeAt(i) === 92) {
@@ -708,12 +710,12 @@ const ensureSourceBackslashLookup = (state, src) => {
 const createCommentPreparseInlineRule = (md) => {
   return (state, silent) => {
     const opt = md && md.__rendererInlineTextOptions
-    if (!opt) return false
+    const runtime = md && md.__rendererInlineTextRuntime
+    if (!opt || !runtime) return false
     const htmlEnabled = !!(state && state.md && state.md.options && state.md.options.html)
-    if (htmlEnabled) return false
 
-    let starInlineMode = !!(opt.starComment && !opt.starCommentLine && !opt.starCommentParagraph)
-    let percentInlineMode = !!(opt.percentComment && !opt.percentCommentLine && !opt.percentCommentParagraph)
+    let starInlineMode = runtime.starInlineEnabled
+    let percentInlineMode = runtime.percentInlineEnabled
     const sourceFlags = ensureCommentPreparseSourceFlags(state, starInlineMode, percentInlineMode)
     if (starInlineMode && !sourceFlags.hasStar) starInlineMode = false
     if (percentInlineMode && !sourceFlags.hasPercent) percentInlineMode = false
@@ -778,12 +780,12 @@ const createCommentPreparseInlineRule = (md) => {
     const deleteMode = markerType === 1 ? !!opt.starCommentDelete : !!opt.percentCommentDelete
     if (!deleteMode) {
       const token = state.push('html_inline', '', 0)
-      const escaped = escapeTextContent(rawSegment)
+      const segment = htmlEnabled ? rawSegment : escapeTextContent(rawSegment)
       if (markerType === 1) {
-        token.content = '<span class="star-comment">' + escaped + '</span>'
+        token.content = '<span class="star-comment">' + segment + '</span>'
       } else {
         const cls = opt.percentClassEscaped || DEFAULT_PERCENT_CLASS
-        token.content = '<span class="' + cls + '">' + escaped + '</span>'
+        token.content = '<span class="' + cls + '">' + segment + '</span>'
       }
     }
 
@@ -1543,8 +1545,7 @@ const convertPercentCommentInlineSegment = (segment, opt, token) => {
     if (meta && meta.__backslashLookup && token && token.content === segment) {
       getEscapesBefore = meta.__backslashLookup
     } else {
-      const lookup = createBackslashLookup(segment)
-      getEscapesBefore = lookup ? (idx) => lookup(idx) : (idx) => countBackslashesBefore(segment, idx)
+      getEscapesBefore = createBackslashLookup(segment)
     }
   }
   const isForcedActive = (idx) => {
@@ -1653,8 +1654,7 @@ const convertStarCommentInlineSegment = (segment, opt, token) => {
     if (meta && meta.__backslashLookup && token && token.content === segment) {
       getEscapesBefore = meta.__backslashLookup
     } else {
-      const lookup = createBackslashLookup(segment)
-      getEscapesBefore = lookup ? (idx) => lookup(idx) : (idx) => countBackslashesBefore(segment, idx)
+      getEscapesBefore = createBackslashLookup(segment)
     }
   }
 
@@ -1707,384 +1707,6 @@ const convertStarCommentInlineSegment = (segment, opt, token) => {
   return rebuilt
 }
 
-const convertStarPercentInlineCombinedSegment = (segment, opt, token) => {
-  if (!segment) return segment
-  if (segment.indexOf(STAR_CHAR) === -1 || segment.indexOf(PERCENT_MARKER) === -1) return segment
-  if (opt.starCommentDelete || opt.percentCommentDelete) return null
-
-  const meta = token && token.meta
-  const forcedActiveStars = meta && meta.__forceActiveStars
-  const forcedEscapedStars = meta && meta.__forceEscapedStars
-  const forcedActivePercents = meta && meta.__forceActivePercents
-  const forcedEscapedPercents = meta && meta.__forceEscapedPercents
-  const forcedActiveStarsLen = forcedActiveStars ? forcedActiveStars.length : 0
-  const forcedActivePercentsLen = forcedActivePercents ? forcedActivePercents.length : 0
-  const hasBackslash = segment.indexOf('\\') !== -1
-
-  let getEscapesBefore = null
-  if (hasBackslash) {
-    if (meta && meta.__backslashLookup && token && token.content === segment) {
-      getEscapesBefore = meta.__backslashLookup
-    } else {
-      const lookup = createBackslashLookup(segment)
-      getEscapesBefore = lookup ? (idx) => lookup(idx) : (idx) => countBackslashesBefore(segment, idx)
-    }
-  }
-
-  const isEscapedFactory = (forcedActive, forcedEscaped) => {
-    let activeIdx = 0
-    let escapedIdx = 0
-    const activeLen = forcedActive ? forcedActive.length : 0
-    const escapedLen = forcedEscaped ? forcedEscaped.length : 0
-
-    return (idx) => {
-      if (activeLen) {
-        while (activeIdx < activeLen && forcedActive[activeIdx] < idx) activeIdx++
-        if (activeIdx < activeLen && forcedActive[activeIdx] === idx) return false
-      }
-      if (escapedLen) {
-        while (escapedIdx < escapedLen && forcedEscaped[escapedIdx] < idx) escapedIdx++
-        if (escapedIdx < escapedLen && forcedEscaped[escapedIdx] === idx) return true
-      }
-      if (!getEscapesBefore) return false
-      return (getEscapesBefore(idx) & 1) === 1
-    }
-  }
-
-  const isEscapedStarIdx = isEscapedFactory(forcedActiveStars, forcedEscapedStars)
-  const isEscapedPercentIdx = isEscapedFactory(forcedActivePercents, forcedEscapedPercents)
-
-  const starRanges = []
-  const percentRanges = []
-  let starOpen = -1
-  let percentOpen = -1
-  for (let i = 0; i < segment.length; i++) {
-    const code = segment.charCodeAt(i)
-    if (code === STAR_CHAR_CODE) {
-      if (!isEscapedStarIdx(i)) {
-        if (starOpen === -1) {
-          starOpen = i
-        } else {
-          starRanges.push([starOpen, i + 1])
-          starOpen = -1
-        }
-      }
-      continue
-    }
-    if (code === PERCENT_CHAR_CODE && i + 1 < segment.length && segment.charCodeAt(i + 1) === PERCENT_CHAR_CODE) {
-      if (!isEscapedPercentIdx(i)) {
-        if (percentOpen === -1) {
-          percentOpen = i
-        } else {
-          percentRanges.push([percentOpen, i + 2])
-          percentOpen = -1
-        }
-      }
-      i++
-    }
-  }
-
-  if (!starRanges.length && !percentRanges.length) {
-    let normalized = segment
-    if (!forcedActiveStarsLen) normalized = collapseMarkerEscapes(normalized, STAR_CHAR)
-    if (!forcedActivePercentsLen) normalized = collapseMarkerEscapes(normalized, PERCENT_MARKER)
-    return normalized
-  }
-
-  const openEvents = new Array(segment.length + 1)
-  const closeEvents = new Array(segment.length + 1)
-  for (let i = 0; i < starRanges.length; i++) {
-    const range = starRanges[i]
-    const start = range[0]
-    const end = range[1]
-    if (!openEvents[start]) openEvents[start] = []
-    if (!closeEvents[end]) closeEvents[end] = []
-    openEvents[start].push('<span class="star-comment">')
-    closeEvents[end].push('</span>')
-  }
-  const percentOpenTag = '<span class="' + (opt.percentClassEscaped || DEFAULT_PERCENT_CLASS) + '">'
-  for (let i = 0; i < percentRanges.length; i++) {
-    const range = percentRanges[i]
-    const start = range[0]
-    const end = range[1]
-    if (!openEvents[start]) openEvents[start] = []
-    if (!closeEvents[end]) closeEvents[end] = []
-    openEvents[start].push(percentOpenTag)
-    closeEvents[end].push('</span>')
-  }
-
-  let rebuilt = ''
-  for (let i = 0; i < segment.length; i++) {
-    if (openEvents[i]) rebuilt += openEvents[i].join('')
-    rebuilt += segment[i]
-    const closeAt = closeEvents[i + 1]
-    if (closeAt) rebuilt += closeAt.join('')
-  }
-  return rebuilt
-}
-
-const collectActiveStarIndexes = (text, token) => {
-  if (!text || text.indexOf(STAR_CHAR) === -1) return []
-  const active = []
-  for (let i = 0; i < text.length; i++) {
-    if (text.charCodeAt(i) !== STAR_CHAR_CODE) continue
-    if (isEscapedStar(text, i, token)) continue
-    active.push(i)
-  }
-  return active
-}
-
-const collectActivePercentIndexes = (text, token) => {
-  if (!text || text.indexOf(PERCENT_MARKER) === -1) return []
-  const active = []
-  for (let i = 0; i < text.length - 1; i++) {
-    if (text.charCodeAt(i) !== PERCENT_CHAR_CODE || text.charCodeAt(i + 1) !== PERCENT_CHAR_CODE) continue
-    if (isEscapedPercent(text, i, token)) continue
-    active.push(i)
-    i++
-  }
-  return active
-}
-
-const normalizeEscapeSentinelsInChildren = (tokens) => {
-  if (!tokens || !tokens.length) return
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i]
-    if (!token || token.hidden || token.type !== 'text') continue
-    let content = token.content
-    if (typeof content !== 'string') {
-      content = content == null ? '' : String(content)
-    }
-    const normalized = normalizeEscapeSentinels(content, token)
-    if (normalized !== content) {
-      token.content = normalized
-    }
-  }
-}
-
-const applyCrossTokenMarkerSpans = (tokens, marker, openTag) => {
-  if (!tokens || !tokens.length) return false
-  if (!marker) return false
-
-  const markerLen = marker === STAR_CHAR ? 1 : 2
-  const isStar = markerLen === 1
-  const resolvedOpenTag = openTag || (isStar
-    ? '<span class="star-comment">'
-    : '<span class="' + DEFAULT_PERCENT_CLASS + '">')
-  const closeTag = '</span>'
-  const collectIndexes = isStar ? collectActiveStarIndexes : collectActivePercentIndexes
-  const isBarrierToken = (token) => !!(token && token.meta && token.meta.__insideRawHtmlInline)
-  const closeByOpen = new Map()
-  {
-    const nestingStack = []
-    for (let t = 0; t < tokens.length; t++) {
-      const token = tokens[t]
-      if (!token || token.nesting == null || token.nesting === 0) continue
-      if (token.nesting > 0) {
-        nestingStack.push(t)
-      } else {
-        const openIndex = nestingStack.length ? nestingStack.pop() : undefined
-        if (openIndex !== undefined) {
-          closeByOpen.set(openIndex, t)
-        }
-      }
-    }
-  }
-  const crossingOpenIndexes = new Set()
-  const sameStack = (a, b) => {
-    if (a.length !== b.length) return false
-    for (let i = 0; i < a.length; i++) {
-      if (a[i] !== b[i]) return false
-    }
-    return true
-  }
-  const markCrossingContexts = (startStack, endStack) => {
-    const startSet = new Set(startStack)
-    const endSet = new Set(endStack)
-    for (let i = 0; i < startStack.length; i++) {
-      const idx = startStack[i]
-      if (!endSet.has(idx)) crossingOpenIndexes.add(idx)
-    }
-    for (let i = 0; i < endStack.length; i++) {
-      const idx = endStack[i]
-      if (!startSet.has(idx)) crossingOpenIndexes.add(idx)
-    }
-  }
-  let openMarker = null
-  const ranges = []
-  const activeNestingStack = []
-
-  for (let t = 0; t < tokens.length; t++) {
-    const token = tokens[t]
-    if (!token) continue
-    if (token.nesting < 0 && activeNestingStack.length) {
-      activeNestingStack.pop()
-    }
-    if (!token.hidden && token.type === 'text' && typeof token.content === 'string') {
-      if (isBarrierToken(token)) {
-        openMarker = null
-      } else {
-        const indexes = collectIndexes(token.content, token)
-        for (let i = 0; i < indexes.length; i++) {
-          const idx = indexes[i]
-          if (!openMarker) {
-            openMarker = {
-              tokenIndex: t,
-              index: idx,
-              stack: activeNestingStack.slice(),
-            }
-          } else {
-            const endStack = activeNestingStack.slice()
-            if (!sameStack(openMarker.stack, endStack)) {
-              markCrossingContexts(openMarker.stack, endStack)
-            }
-            ranges.push({
-              startToken: openMarker.tokenIndex,
-              startIndex: openMarker.index,
-              endToken: t,
-              endIndex: idx,
-            })
-            openMarker = null
-          }
-        }
-      }
-    }
-    if (token.nesting > 0) {
-      activeNestingStack.push(t)
-    }
-  }
-
-  if (!ranges.length) {
-    // keep backslash parity behavior for escaped markers even when no pairs close.
-    for (let t = 0; t < tokens.length; t++) {
-      const token = tokens[t]
-      if (!token || token.hidden || token.type !== 'text' || typeof token.content !== 'string') continue
-      if (isBarrierToken(token)) continue
-      const meta = token.meta
-      const forcedActive = isStar
-        ? (meta && meta.__forceActiveStars)
-        : (meta && meta.__forceActivePercents)
-      if (forcedActive && forcedActive.length) continue
-      const collapsed = collapseMarkerEscapes(token.content, marker)
-      if (collapsed !== token.content) {
-        token.content = collapsed
-      }
-    }
-    return false
-  }
-
-  const openAt = new Map()
-  const closeAt = new Map()
-  const setEvent = (map, tokenIndex, markerIndex) => {
-    let tokenEvents = map.get(tokenIndex)
-    if (!tokenEvents) {
-      tokenEvents = Object.create(null)
-      map.set(tokenIndex, tokenEvents)
-    }
-    tokenEvents[markerIndex] = (tokenEvents[markerIndex] || 0) + 1
-  }
-  for (let i = 0; i < ranges.length; i++) {
-    const range = ranges[i]
-    setEvent(openAt, range.startToken, range.startIndex)
-    setEvent(closeAt, range.endToken, range.endIndex)
-  }
-
-  let changed = false
-  for (let t = 0; t < tokens.length; t++) {
-    const token = tokens[t]
-    if (!token || token.hidden || token.type !== 'text' || typeof token.content !== 'string') continue
-    if (isBarrierToken(token)) continue
-
-    const text = token.content
-    const tokenOpen = openAt.get(t)
-    const tokenClose = closeAt.get(t)
-    const canMaskSourceAngles = !(token.meta && token.meta.__crossTokenAnglesMasked)
-
-    let rebuilt = text
-    if (tokenOpen || tokenClose) {
-      let out = ''
-      if (isStar) {
-        for (let i = 0; i < text.length; i++) {
-          const openCount = tokenOpen && tokenOpen[i] ? tokenOpen[i] : 0
-          const closeCount = tokenClose && tokenClose[i] ? tokenClose[i] : 0
-          if (openCount) out += resolvedOpenTag.repeat(openCount)
-          const ch = text.charCodeAt(i)
-          if (canMaskSourceAngles && ch === 60) { // '<'
-            out += RAW_HTML_LT_SENTINEL
-          } else if (canMaskSourceAngles && ch === 62) { // '>'
-            out += RAW_HTML_GT_SENTINEL
-          } else {
-            out += text[i]
-          }
-          if (closeCount) out += closeTag.repeat(closeCount)
-        }
-      } else {
-        for (let i = 0; i < text.length; i++) {
-          const isMarker = i + 1 < text.length
-            && text.charCodeAt(i) === PERCENT_CHAR_CODE
-            && text.charCodeAt(i + 1) === PERCENT_CHAR_CODE
-          if (isMarker) {
-            const openCount = tokenOpen && tokenOpen[i] ? tokenOpen[i] : 0
-            const closeCount = tokenClose && tokenClose[i] ? tokenClose[i] : 0
-            if (openCount) out += resolvedOpenTag.repeat(openCount)
-            out += PERCENT_MARKER
-            if (closeCount) out += closeTag.repeat(closeCount)
-            i++
-            continue
-          }
-          const ch = text.charCodeAt(i)
-          if (canMaskSourceAngles && ch === 60) { // '<'
-            out += RAW_HTML_LT_SENTINEL
-          } else if (canMaskSourceAngles && ch === 62) { // '>'
-            out += RAW_HTML_GT_SENTINEL
-          } else {
-            out += text[i]
-          }
-        }
-      }
-      rebuilt = out
-      if (canMaskSourceAngles) {
-        token.meta = token.meta || {}
-        token.meta.__crossTokenAnglesMasked = true
-      }
-      changed = true
-    }
-
-    const meta = token.meta
-    const forcedActive = isStar
-      ? (meta && meta.__forceActiveStars)
-      : (meta && meta.__forceActivePercents)
-    if (!(forcedActive && forcedActive.length)) {
-      rebuilt = collapseMarkerEscapes(rebuilt, marker)
-    }
-    if (rebuilt !== text) {
-      token.meta = token.meta || {}
-      token.meta.__crossTokenMarkerMutated = true
-      token.content = rebuilt
-      changed = true
-    }
-  }
-
-  if (crossingOpenIndexes.size) {
-    for (const openIndex of crossingOpenIndexes) {
-      const openToken = tokens[openIndex]
-      if (openToken && !openToken.hidden) {
-        openToken.hidden = true
-        changed = true
-      }
-      const closeIndex = closeByOpen.get(openIndex)
-      if (closeIndex === undefined) continue
-      const closeToken = tokens[closeIndex]
-      if (closeToken && !closeToken.hidden) {
-        closeToken.hidden = true
-        changed = true
-      }
-    }
-  }
-
-  return changed
-}
-
 const createRuntimePlan = (opt) => {
   const rubyEnabled = !!opt.ruby
   const starEnabled = !!opt.starComment
@@ -2092,11 +1714,13 @@ const createRuntimePlan = (opt) => {
   const starDeleteEnabled = !!(starEnabled && opt.starCommentDelete)
   const starParagraphEnabled = !!(starEnabled && opt.starCommentParagraph)
   const starLineEnabled = !!(starEnabled && opt.starCommentLine)
+  const starInlineEnabled = !!(starEnabled && !starParagraphEnabled && !starLineEnabled)
   const starParagraphClass = starParagraphEnabled ? (opt.starCommentParagraphClass || '') : ''
   const starParagraphClassEnabled = !!starParagraphClass
   const percentDeleteEnabled = !!(percentEnabled && opt.percentCommentDelete)
   const percentParagraphEnabled = !!(percentEnabled && opt.percentCommentParagraph)
   const percentLineEnabled = !!(percentEnabled && opt.percentCommentLine)
+  const percentInlineEnabled = !!(percentEnabled && !percentParagraphEnabled && !percentLineEnabled)
   const percentParagraphClass = percentParagraphEnabled ? (opt.percentCommentParagraphClass || '') : ''
   const percentParagraphClassEnabled = !!percentParagraphClass
   const anyEnabled = rubyEnabled || starEnabled || percentEnabled
@@ -2117,12 +1741,14 @@ const createRuntimePlan = (opt) => {
     starDeleteEnabled,
     starParagraphEnabled,
     starLineEnabled,
+    starInlineEnabled,
     starParagraphClass,
     starParagraphClassEnabled,
     percentEnabled,
     percentDeleteEnabled,
     percentParagraphEnabled,
     percentLineEnabled,
+    percentInlineEnabled,
     percentParagraphClass,
     percentParagraphClassEnabled,
     anyEnabled,
@@ -2144,7 +1770,6 @@ const compileInlineTokenRunner = (profile) => {
   const percentParagraphClassEnabled = profile.percentParagraphClassEnabled
   const percentDeleteEnabled = profile.percentDeleteEnabled
   const shouldNormalizeEscapes = starEnabled || percentEnabled
-  const hasInlineMarkerConversion = htmlEnabled && (starEnabled || percentEnabled)
 
   return (state, opt) => {
     const tokens = state.tokens
@@ -2200,27 +1825,6 @@ const compileInlineTokenRunner = (profile) => {
         markPercentCommentLineGlobal(children, opt)
       }
 
-      const useCrossTokenStarInline = htmlEnabled
-        && starEnabled
-        && !starLineEnabled
-        && !starParagraphEnabled
-        && !starDeleteEnabled
-      const useCrossTokenPercentInline = htmlEnabled
-        && percentEnabled
-        && !percentLineEnabled
-        && !percentParagraphEnabled
-        && !percentDeleteEnabled
-      if ((useCrossTokenStarInline || useCrossTokenPercentInline) && shouldNormalizeEscapes) {
-        normalizeEscapeSentinelsInChildren(children)
-      }
-      if (useCrossTokenStarInline && blockHasStar) {
-        applyCrossTokenMarkerSpans(children, STAR_CHAR, '<span class="star-comment">')
-      }
-      if (useCrossTokenPercentInline && blockHasPercent) {
-        const percentOpenTag = '<span class="' + (opt.percentClassEscaped || DEFAULT_PERCENT_CLASS) + '">'
-        applyCrossTokenMarkerSpans(children, PERCENT_MARKER, percentOpenTag)
-      }
-
       const percentClass = opt.percentClassEscaped || DEFAULT_PERCENT_CLASS
       const wrapStarParagraphInline = isStarParagraph && !starParagraphClassEnabled
       const wrapPercentParagraphInline = isPercentParagraph && !percentParagraphClassEnabled
@@ -2249,29 +1853,22 @@ const compileInlineTokenRunner = (profile) => {
             }
           }
           const meta = token.meta
-          const crossTokenMutated = !!(meta && meta.__crossTokenMarkerMutated)
-          if (crossTokenMutated) {
-            delete meta.__crossTokenMarkerMutated
-          }
           const inStarLine = !!(starLineEnabled && meta && meta.__starLineGlobal)
           const inPercentLine = !!(percentLineEnabled && meta && meta.__percentLineGlobal)
           const needsWrap = wrapStarParagraphInline || wrapPercentParagraphInline || inStarLine || inPercentLine
           const hasRubyMarker = rubyEnabled && content.indexOf(RUBY_MARK_CHAR) !== -1
-          const starHandledByCrossToken = useCrossTokenStarInline
-          const percentHandledByCrossToken = useCrossTokenPercentInline
-          let hasStarMarker = htmlEnabled && starEnabled && !starHandledByCrossToken && !inStarLine && content.indexOf(STAR_CHAR) !== -1
-          let hasPercentMarker = htmlEnabled && percentEnabled && !percentHandledByCrossToken && !inPercentLine && content.indexOf(PERCENT_MARKER) !== -1
-          if (!needsWrap && !hasRubyMarker && !hasStarMarker && !hasPercentMarker && !crossTokenMutated) {
+          const hasStarMarker = htmlEnabled && starEnabled && !inStarLine && content.indexOf(STAR_CHAR) !== -1
+          const hasPercentMarker = htmlEnabled && percentEnabled && !inPercentLine && content.indexOf(PERCENT_MARKER) !== -1
+          if (!needsWrap && !hasRubyMarker && !hasStarMarker && !hasPercentMarker) {
             continue
           }
 
           const htmlFlags = getHtmlEntityFlags(content)
           const rawAnglesNeeded = (htmlFlags & (HTML_ENTITY_LT | HTML_ENTITY_GT)) !== 0
-            && (!htmlEnabled || !crossTokenMutated)
           let rebuilt = content
-          let mutated = crossTokenMutated
+          let mutated = false
           let forceHtmlInline = false
-          let rawAnglesMasked = !!(meta && meta.__crossTokenAnglesMasked)
+          let rawAnglesMasked = false
 
           if (rawAnglesNeeded && !rawAnglesMasked) {
             const masked = maskRawHtmlAngles(rebuilt)
@@ -2300,39 +1897,20 @@ const compileInlineTokenRunner = (profile) => {
             if (converted !== rebuilt) {
               rebuilt = converted
               mutated = true
-              if (hasInlineMarkerConversion) {
-                hasStarMarker = starEnabled && !starHandledByCrossToken && !inStarLine && rebuilt.indexOf(STAR_CHAR) !== -1
-                hasPercentMarker = percentEnabled && !percentHandledByCrossToken && !inPercentLine && rebuilt.indexOf(PERCENT_MARKER) !== -1
-              }
             }
           }
-          if (hasStarMarker || hasPercentMarker) {
-            let combinedUsed = false
-            if (!htmlEnabled && !needsWrap && hasStarMarker && hasPercentMarker) {
-              const combined = convertStarPercentInlineCombinedSegment(rebuilt, opt, token)
-              if (combined !== null) {
-                combinedUsed = true
-                if (combined !== rebuilt) {
-                  rebuilt = combined
-                  mutated = true
-                }
-              }
+          if (hasStarMarker) {
+            const converted = convertStarCommentInlineSegment(rebuilt, opt, token)
+            if (converted !== rebuilt) {
+              rebuilt = converted
+              mutated = true
             }
-            if (!combinedUsed) {
-              if (hasStarMarker) {
-                const converted = convertStarCommentInlineSegment(rebuilt, opt, token)
-                if (converted !== rebuilt) {
-                  rebuilt = converted
-                  mutated = true
-                }
-              }
-              if (hasPercentMarker) {
-                const converted = convertPercentCommentInlineSegment(rebuilt, opt, token)
-                if (converted !== rebuilt) {
-                  rebuilt = converted
-                  mutated = true
-                }
-              }
+          }
+          if (hasPercentMarker) {
+            const converted = convertPercentCommentInlineSegment(rebuilt, opt, token)
+            if (converted !== rebuilt) {
+              rebuilt = converted
+              mutated = true
             }
           }
 
@@ -2372,9 +1950,6 @@ const compileInlineTokenRunner = (profile) => {
               rebuilt = restored
               mutated = true
               forceHtmlInline = true
-            }
-            if (meta && meta.__crossTokenAnglesMasked) {
-              delete meta.__crossTokenAnglesMasked
             }
           }
           if (mutated || forceHtmlInline) {
@@ -2422,7 +1997,7 @@ const convertInlineTokens = (md) => {
     if (!opt || !runtime || !runtime.anyEnabled) return
     const htmlEnabled = !!(state.md && state.md.options && state.md.options.html)
     const runner = getCompiledInlineTokenRunner(md, runtime, htmlEnabled)
-    runner(state, opt, runtime)
+    runner(state, opt)
   }
 }
 
@@ -2446,7 +2021,6 @@ const normalizePluginOptions = (md, option = {}) => {
     percentClass: DEFAULT_PERCENT_CLASS,
     ...rawOption,
   }
-  opt.escapeHtml = escapeHtml
   opt.starCommentParagraph = opt.starCommentParagraph && !opt.starCommentLine
   opt.percentCommentParagraph = opt.percentCommentParagraph && !opt.percentCommentLine
   const percentClass = normalizePercentClass(escapeHtml, opt.percentClass)

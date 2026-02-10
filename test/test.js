@@ -395,7 +395,7 @@ if (totalErrors > 0) {
   assert.strictEqual(md.render('\\%%x%%'), '<p>%%x%%</p>\n')
 }
 
-// html:true: inline preparse is disabled, but text/html-node conversions still work
+// html:true: inline ★/%% preparse is also enabled (marker-priority path)
 {
   const md = mdit({ html: true }).use(mdRendererInlineText, {
     ruby: true,
@@ -408,11 +408,11 @@ if (totalErrors > 0) {
   )
   assert.strictEqual(
     md.render('**前★A**B★後'),
-    '<p>前<span class="star-comment">★AB★</span>後</p>\n',
+    '<p>**前<span class="star-comment">★A**B★</span>後</p>\n',
   )
   assert.strictEqual(
     md.render('**前%%A**B%%後'),
-    '<p>前<span class="percent-comment">%%AB%%</span>後</p>\n',
+    '<p>**前<span class="percent-comment">%%A**B%%</span>後</p>\n',
   )
   assert.strictEqual(
     md.render('前<span title="★x★ %%y%% 漢字《かんじ》">漢字《ほんぶん》</span>後'),
@@ -428,7 +428,7 @@ if (totalErrors > 0) {
   )
   assert.strictEqual(
     md.render('★**aaa**★'),
-    '<p><span class="star-comment">★<strong>aaa</strong>★</span></p>\n',
+    '<p><span class="star-comment">★**aaa**★</span></p>\n',
   )
   assert.strictEqual(
     md.render('<script>const s="★dev★ %%x%% 漢字《かんじ》";</script>'),
@@ -444,26 +444,26 @@ if (totalErrors > 0) {
   )
   assert.strictEqual(
     md.render('★A%%B★C%%'),
-    '<p><span class="star-comment">★A<span class="percent-comment">%%B★</span>C%%</span></p>\n',
+    '<p><span class="star-comment">★A%%B★</span>C%%</p>\n',
   )
   assert.strictEqual(
     md.render('%%A★B%%C★'),
-    '<p><span class="percent-comment">%%A<span class="star-comment">★B%%</span>C★</span></p>\n',
+    '<p><span class="percent-comment">%%A★B%%</span>C★</p>\n',
   )
 }
 
-// html:true with markdown-it-strong-ja: crossing markers should still normalize without crossed tags
+// html:true with markdown-it-strong-ja: marker-priority output should stay stable
 {
   const mdStrongJaFirst = mdit({ html: true })
     .use(strongJa)
     .use(mdRendererInlineText, { starComment: true, percentComment: true })
   assert.strictEqual(
     mdStrongJaFirst.render('**前★A**B★後'),
-    '<p>前<span class="star-comment">★AB★</span>後</p>\n',
+    '<p>**前<span class="star-comment">★A**B★</span>後</p>\n',
   )
   assert.strictEqual(
     mdStrongJaFirst.render('★**重大変更**★'),
-    '<p><span class="star-comment">★<strong>重大変更</strong>★</span></p>\n',
+    '<p><span class="star-comment">★**重大変更**★</span></p>\n',
   )
 
   const mdStrongJaLast = mdit({ html: true })
@@ -471,7 +471,7 @@ if (totalErrors > 0) {
     .use(strongJa)
   assert.strictEqual(
     mdStrongJaLast.render('**前★A**B★後'),
-    '<p>前<span class="star-comment">★AB★</span>後</p>\n',
+    '<p>**前<span class="star-comment">★A**B★</span>後</p>\n',
   )
 }
 

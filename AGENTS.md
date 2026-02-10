@@ -9,7 +9,7 @@
 - `starCommentLine` overrides `starCommentParagraph`; `percentCommentLine` overrides `percentCommentParagraph`.
 - Hooks are patched once per instance:
   - `md.inline.ruler.before('escape', 'star_percent_escape_meta', applyEscapeMetaInlineRule)` captures backslash parity for ★/%% before markdown-it's escape rule runs (emits sentinels that normalize into token meta).
-  - `md.inline.ruler.before('text', 'star_percent_comment_preparse', createCommentPreparseInlineRule(md))` runs inline preparse for ★/%% pairs in `html:false` inline mode.
+  - `md.inline.ruler.before('text', 'star_percent_comment_preparse', createCommentPreparseInlineRule(md))` runs inline preparse for ★/%% pairs in inline mode for both `html:false` and `html:true`.
   - `safeCoreRule(..., 'inline_ruler_convert', ...)` installs the core rule for conversion.
   - `patchCoreRulerOrderGuard` wraps core-ruler mutators (`push/after/before/at`) and keeps `inline_ruler_convert` and `paragraph_wrapper_adjust` at the tail, so `text_join` / `cjk_breaks` and later-added core rules don't invalidate metadata.
   - `safeCoreRule(... 'star_comment_line_marker' ...)` runs when `starCommentLine` is enabled.
@@ -19,31 +19,28 @@
   - `safeCoreRule(..., 'paragraph_wrapper_adjust', ...)` hides paragraph wrappers and applies paragraph classes at token level (no renderer rule override).
 
 ## Runtime compilation
-- `createRuntimePlan` precomputes feature flags and `inlineProfileMask` for the current option set.
+- `createRuntimePlan` precomputes feature flags, inline-mode flags (`starInlineEnabled` / `percentInlineEnabled`), and `inlineProfileMask` for the current option set.
 - Inline conversion is compiled per `(inlineProfileMask + htmlEnabled bit)` and cached in `md.__inlineTokenRunnerCache`.
 
 ## Rendering flow
 - Core rule `convertInlineTokens` dispatches to a precompiled inline runner and mutates tokens in place.
 - Escape sentinels are normalized once per text token; forced-active/escaped indexes live in token.meta. Backslash runs are cached (`__backslashLookup`) to keep escape checks O(n). Sentinels use noncharacter Unicode points (`U+FDD0..U+FDD5`) to reduce collision risk with normal text/control chars.
+- Backslash lookup uses `Uint16Array` by default and auto-switches to `Uint32Array` for long inputs to avoid run-length overflow.
 - `html:true`:
   - Conversion runs only on markdown-it inline `text` tokens.
   - Raw `html_block` / `html_inline` token contents are not reparsed or rewritten by this plugin.
   - Inline children use `ensureInlineHtmlContext` to skip conversion inside raw-text HTML regions.
 - `html:false`:
-  - inline ★/%% preparse emits wrapper `html_inline` tokens early when inline mode is active.
+  - inline ★/%% preparse emits wrapper `html_inline` tokens early when inline mode is active (same as `html:true`, but with HTML escaping inside wrapped segments).
   - preparse rule advances `state.pos` in `silent` mode when it accepts a marker pair, matching markdown-it `skipToken` contract (prevents crashes in link-label scans like `a[★b★c`).
   - text conversion keeps raw `<` / `>` masked and restored as entities so wrapper injection does not re-enable raw HTML.
   - in ruby mode, masked `<ruby>` wrappers are restored so `<ruby>漢字《かんじ》</ruby>` remains ruby HTML output.
 - Text token conversion order:
   - ruby (`convertRubyKnown`)
-  - star / percent conversion
+  - star/percent pair conversion on remaining `text` tokens in `html:true` (`convertStarCommentInlineSegment` / `convertPercentCommentInlineSegment`)
   - line/paragraph wrapper insertion
   - HTML escaping (`escapeInlineHtml`) when needed (`&`, `<`, `>`, `"`)
-- In `html:true` inline mode (non line/paragraph, non delete), ★/%% pairing is resolved across the inline token stream, so markers can span inline HTML tags and markdown inline formatting boundaries.
-- Cross-token pairing is prioritized over markdown inline marker nesting. When boundaries would cross, formatter wrappers are hidden so output avoids crossed HTML tags.
-- Stage-1 one-pass optimization:
-  - for `html:false`, non-wrap, non-delete text segments containing both ★ and %% use `convertStarPercentInlineCombinedSegment` (single scan).
-  - other paths fall back to `convertStarCommentInlineSegment` / `convertPercentCommentInlineSegment`.
+- In inline mode, marker ranges are fixed by preparse before markdown inline formatting, so markdown syntax inside `★...★` / `%%...%%` remains literal.
 - Line and paragraph modes:
   - `markStarCommentLineGlobal` / `markPercentCommentLineGlobal` annotate spans once per inline token array.
   - line delete mode suppresses line content and adjacent breaks.
