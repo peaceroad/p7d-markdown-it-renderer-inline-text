@@ -144,7 +144,7 @@ Line mode example:
 
 Options:`{ starComment: true, starCommentLine: true }`
 
-```md
+```
 Input:
 通常案内
 ★売り切れ注意
@@ -160,18 +160,18 @@ Paragraph mode example:
 
 Options:`{ starComment: true, starCommentParagraph: true }`
 
-```md
-Input:★本日は売り切れ次第終了です。
-Output:<p><span class="star-comment">★本日は売り切れ次第終了です。</span></p>
+```
+Input: ★本日は売り切れ次第終了です。
+Output: <p><span class="star-comment">★本日は売り切れ次第終了です。</span></p>
 ```
 
 Paragraph-only class example:
 
 Options:`{ starComment: true, starCommentParagraph: true, starCommentParagraphClass: true }`
 
-```md
-Input:★本日は売り切れ次第終了です。
-Output:<p class="star-comment">★本日は売り切れ次第終了です。</p>
+```
+Input: ★本日は売り切れ次第終了です。
+Output: <p class="star-comment">★本日は売り切れ次第終了です。</p>
 ```
 
 ## Options
@@ -226,7 +226,7 @@ Notes:
   - Odd number of backslashes before marker: marker is escaped.
   - Even number: marker can participate in pairing.
 - In inline mode (`html:true` / `html:false`), preparse handles star/percent pairs first.
-- Markdown inline syntax inside a marker range is kept literal (for example, `★**bold**★`, `★\`code\`★`, `★[link](...)★`).
+- Markdown inline syntax inside a marker range is kept literal (for example, `★**bold**★`, ``★`code`★``, `★[link](...)★`).
 - Ruby conversion runs on text tokens; when marker preparse has already wrapped a range, ruby conversion does not rewrite inside that wrapped marker content.
 
 ### HTML Boundary Behavior
