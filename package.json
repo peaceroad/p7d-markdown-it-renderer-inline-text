@@ -4,8 +4,14 @@
   "description": "A markdown-it plugin. Modify inline text of rendering HTML; Ruby, Star Comment.",
   "main": "index.js",
   "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./analyzer": "./analyzer.js"
+  },
   "files": [
     "index.js",
+    "analyzer.js",
+    "src",
     "LICENSE",
     "README.md"
   ],

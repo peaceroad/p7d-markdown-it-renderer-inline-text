@@ -1,12 +1,19 @@
-const STAR_CHAR = '★'
-const STAR_CHAR_CODE = STAR_CHAR.charCodeAt(0)
+import {
+  STAR_CHAR,
+  STAR_CHAR_CODE,
+  PERCENT_CHAR,
+  PERCENT_CHAR_CODE,
+  PERCENT_MARKER,
+  DEFAULT_STAR_CLASS,
+  DEFAULT_PERCENT_CLASS,
+  RUBY_MARK_CHAR,
+  normalizeOptions as normalizeSharedOptions,
+  lineStartsWithStar as sharedLineStartsWithStar,
+  lineStartsWithPercent as sharedLineStartsWithPercent,
+  createRuntimePlan as createSharedRuntimePlan,
+} from './src/shared-runtime.js'
+
 const STAR_COMMENT_LINE_META_KEY = 'starCommentLineDelete'
-const PERCENT_CHAR = '%'
-const PERCENT_CHAR_CODE = PERCENT_CHAR.charCodeAt(0)
-const PERCENT_MARKER = PERCENT_CHAR + PERCENT_CHAR
-const DEFAULT_STAR_CLASS = 'star-comment'
-const DEFAULT_PERCENT_CLASS = 'percent-comment'
-const RUBY_MARK_CHAR = '《'
 // Internal sentinels keep escape parity and raw-angle masking stable across text_join merges.
 // Use noncharacter code points to minimize collisions with user text and toolchain control-char handling.
 const ESCAPED_STAR_SENTINEL = '\uFDD0'
@@ -23,8 +30,12 @@ const INLINE_HTML_VOID_TAGS = new Set([
   'meta', 'param', 'source', 'track', 'wbr',
 ])
 const INLINE_HTML_RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'title'])
-const RUBY_REGEXP_CONTENT = '(<ruby>)?([\\p{sc=Han}0-9A-Za-z.\\-_]+)《([^》]+?)》(<\\/ruby>)?'
-const RUBY_REGEXP_FALLBACK_CONTENT = '(<ruby>)?([\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF0-9A-Za-z.\\-_]+)《([^》]+?)》(<\\/ruby>)?'
+const RUBY_BASE_CONTENT = '[\\p{sc=Han}0-9A-Za-z.\\-_]+'
+const RUBY_BASE_FALLBACK_CONTENT = '[\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF0-9A-Za-z.\\-_]+'
+const RUBY_REGEXP_CONTENT = '(?:<ruby>(' + RUBY_BASE_CONTENT + ')《([^》]+?)》<\\/ruby>|(' + RUBY_BASE_CONTENT + ')《([^》]+?)》)'
+const RUBY_REGEXP_FALLBACK_CONTENT = '(?:<ruby>(' + RUBY_BASE_FALLBACK_CONTENT + ')《([^》]+?)》<\\/ruby>|(' + RUBY_BASE_FALLBACK_CONTENT + ')《([^》]+?)》)'
+const INLINE_RUBY_OPEN_TAG_REGEXP = /^<\s*ruby\s*>$/i
+const INLINE_RUBY_CLOSE_TAG_REGEXP = /^<\s*\/\s*ruby\s*>$/i
 const HTML_AMP_REGEXP = /&/g
 const HTML_LT_NONTAG_REGEXP = /<(?!\/?[\w\s="/.':;#-\/\?]+>)/g
 const HTML_EMPTY_TAG_REGEXP = /<(\/?)>/g
@@ -47,9 +58,9 @@ const HTML_GT_NONTAG_REGEXP = (() => {
 
 const createRubyRegExp = () => {
   try {
-    return new RegExp(RUBY_REGEXP_CONTENT, 'ug')
+    return new RegExp(RUBY_REGEXP_CONTENT, 'ugi')
   } catch (err) {
-    return new RegExp(RUBY_REGEXP_FALLBACK_CONTENT, 'g')
+    return new RegExp(RUBY_REGEXP_FALLBACK_CONTENT, 'gi')
   }
 }
 
@@ -68,16 +79,6 @@ const escapeTextContent = (value) => {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-}
-
-const normalizeParagraphClass = (value, fallbackClass) => {
-  if (value === false || value == null) return ''
-  if (value === true) return fallbackClass
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    return trimmed || fallbackClass
-  }
-  return ''
 }
 
 const normalizePercentClass = (escapeHtml, value) => {
@@ -185,9 +186,9 @@ const getHtmlEntityFlags = (value) => {
 const detectRubyWrapper = (tokens, idx) => {
   if (!tokens[idx - 1] || !tokens[idx + 1]) return false
   return tokens[idx - 1].type === 'html_inline'
-    && tokens[idx - 1].content === '<ruby>'
+    && INLINE_RUBY_OPEN_TAG_REGEXP.test(tokens[idx - 1].content || '')
     && tokens[idx + 1].type === 'html_inline'
-    && tokens[idx + 1].content === '</ruby>'
+    && INLINE_RUBY_CLOSE_TAG_REGEXP.test(tokens[idx + 1].content || '')
 }
 
 const findSpecialHtmlEnd = (value, start) => {
@@ -429,6 +430,7 @@ const hideInlineTokensAfter = (tokens, startIdx, metaKey = '__starCommentDelete'
 }
 
 const countBackslashesBefore = (text, index) => {
+  if (!text || index <= 0) return 0
   let backslashCount = 0
   let cursor = index - 1
   while (cursor >= 0 && text.charCodeAt(cursor) === 92) {
@@ -825,23 +827,8 @@ const isPercentCommentParagraph = (inlineTokens) => {
   return result
 }
 
-const lineStartsWithStar = (line) => {
-  if (!line) return false
-  let idx = 0
-  while (idx < line.length && (line[idx] === ' ' || line[idx] === '\t')) idx++
-  if (idx >= line.length) return false
-  if (line[idx] !== STAR_CHAR) return false
-  return !isEscapedStar(line, idx)
-}
-
-const lineStartsWithPercent = (line) => {
-  if (!line) return false
-  let idx = 0
-  while (idx < line.length && (line[idx] === ' ' || line[idx] === '\t')) idx++
-  if (idx >= line.length - 1) return false
-  if (line[idx] !== PERCENT_CHAR || line[idx + 1] !== PERCENT_CHAR) return false
-  return !isEscapedPercent(line, idx)
-}
+const lineStartsWithStar = sharedLineStartsWithStar
+const lineStartsWithPercent = sharedLineStartsWithPercent
 
 const getStarCommentLineCache = (md, src) => {
   const cache = md.__starCommentLineCache
@@ -1481,9 +1468,10 @@ const escapeInlineHtml = (value, flags) => {
 const convertRubyKnown = (cont, hasRubyWrapper) => {
   RUBY_REGEXP.lastIndex = 0
   let replaced = false
-  const converted = cont.replace(RUBY_REGEXP, (match, openTag, base, reading, closeTag) => {
+  const converted = cont.replace(RUBY_REGEXP, (match, wrappedBase, wrappedReading, plainBase, plainReading) => {
+    const base = wrappedBase || plainBase
+    const reading = wrappedReading || plainReading
     if (!base || !reading) return match
-    if ((openTag && !closeTag) || (closeTag && !openTag)) return match
     replaced = true
     const rubyCont = base + '<rp>《</rp><rt>' + reading + '</rt><rp>》</rp>'
     return hasRubyWrapper ? rubyCont : '<ruby>' + rubyCont + '</ruby>'
@@ -1707,54 +1695,7 @@ const convertStarCommentInlineSegment = (segment, opt, token) => {
   return rebuilt
 }
 
-const createRuntimePlan = (opt) => {
-  const rubyEnabled = !!opt.ruby
-  const starEnabled = !!opt.starComment
-  const percentEnabled = !!opt.percentComment
-  const starDeleteEnabled = !!(starEnabled && opt.starCommentDelete)
-  const starParagraphEnabled = !!(starEnabled && opt.starCommentParagraph)
-  const starLineEnabled = !!(starEnabled && opt.starCommentLine)
-  const starInlineEnabled = !!(starEnabled && !starParagraphEnabled && !starLineEnabled)
-  const starParagraphClass = starParagraphEnabled ? (opt.starCommentParagraphClass || '') : ''
-  const starParagraphClassEnabled = !!starParagraphClass
-  const percentDeleteEnabled = !!(percentEnabled && opt.percentCommentDelete)
-  const percentParagraphEnabled = !!(percentEnabled && opt.percentCommentParagraph)
-  const percentLineEnabled = !!(percentEnabled && opt.percentCommentLine)
-  const percentInlineEnabled = !!(percentEnabled && !percentParagraphEnabled && !percentLineEnabled)
-  const percentParagraphClass = percentParagraphEnabled ? (opt.percentCommentParagraphClass || '') : ''
-  const percentParagraphClassEnabled = !!percentParagraphClass
-  const anyEnabled = rubyEnabled || starEnabled || percentEnabled
-  const inlineProfileMask = (rubyEnabled ? 1 : 0)
-    | (starEnabled ? 2 : 0)
-    | (starDeleteEnabled ? 4 : 0)
-    | (starParagraphEnabled ? 8 : 0)
-    | (starLineEnabled ? 16 : 0)
-    | (percentEnabled ? 32 : 0)
-    | (percentDeleteEnabled ? 64 : 0)
-    | (percentParagraphEnabled ? 128 : 0)
-    | (percentLineEnabled ? 256 : 0)
-    | (starParagraphClassEnabled ? 512 : 0)
-    | (percentParagraphClassEnabled ? 1024 : 0)
-  return {
-    rubyEnabled,
-    starEnabled,
-    starDeleteEnabled,
-    starParagraphEnabled,
-    starLineEnabled,
-    starInlineEnabled,
-    starParagraphClass,
-    starParagraphClassEnabled,
-    percentEnabled,
-    percentDeleteEnabled,
-    percentParagraphEnabled,
-    percentLineEnabled,
-    percentInlineEnabled,
-    percentParagraphClass,
-    percentParagraphClassEnabled,
-    anyEnabled,
-    inlineProfileMask,
-  }
-}
+const createRuntimePlan = createSharedRuntimePlan
 
 const compileInlineTokenRunner = (profile) => {
   const htmlEnabled = profile.htmlEnabled
@@ -2002,32 +1943,13 @@ const convertInlineTokens = (md) => {
 }
 
 const normalizePluginOptions = (md, option = {}) => {
-  const rawOption = option && typeof option === 'object' ? option : {}
   const escapeHtml = md && md.utils && typeof md.utils.escapeHtml === 'function'
     ? md.utils.escapeHtml
     : fallbackEscapeHtml
-  const opt = {
-    ruby: false,
-    starComment: false,
-    starCommentDelete: false,
-    starCommentParagraph: false,
-    starCommentLine: false,
-    starCommentParagraphClass: false,
-    percentComment: false,
-    percentCommentDelete: false,
-    percentCommentParagraph: false,
-    percentCommentLine: false,
-    percentCommentParagraphClass: false,
-    percentClass: DEFAULT_PERCENT_CLASS,
-    ...rawOption,
-  }
-  opt.starCommentParagraph = opt.starCommentParagraph && !opt.starCommentLine
-  opt.percentCommentParagraph = opt.percentCommentParagraph && !opt.percentCommentLine
+  const opt = normalizeSharedOptions(option)
   const percentClass = normalizePercentClass(escapeHtml, opt.percentClass)
   opt.percentClass = percentClass.raw
   opt.percentClassEscaped = percentClass.escaped
-  opt.starCommentParagraphClass = normalizeParagraphClass(opt.starCommentParagraphClass, DEFAULT_STAR_CLASS)
-  opt.percentCommentParagraphClass = normalizeParagraphClass(opt.percentCommentParagraphClass, opt.percentClass)
   return opt
 }
 

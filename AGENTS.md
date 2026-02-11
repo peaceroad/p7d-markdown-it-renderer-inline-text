@@ -21,6 +21,9 @@
 ## Runtime compilation
 - `createRuntimePlan` precomputes feature flags, inline-mode flags (`starInlineEnabled` / `percentInlineEnabled`), and `inlineProfileMask` for the current option set.
 - Inline conversion is compiled per `(inlineProfileMask + htmlEnabled bit)` and cached in `md.__inlineTokenRunnerCache`.
+- Analyzer subpath (`./analyzer`) reuses the same option/runtime semantics without running markdown-it.
+- Shared option/runtime/line-parity helpers live in `src/shared-runtime.js` and are consumed by both `index.js` and `src/analyzer.js` to reduce drift.
+- Analyzer exposes windowed/diff-friendly helpers (`analyzeLineWindow`, `expandToParagraphBoundaries`, `shouldFullAnalyze`) for editor integrations.
 
 ## Rendering flow
 - Core rule `convertInlineTokens` dispatches to a precompiled inline runner and mutates tokens in place.
@@ -34,7 +37,7 @@
   - inline ★/%% preparse emits wrapper `html_inline` tokens early when inline mode is active (same as `html:true`, but with HTML escaping inside wrapped segments).
   - preparse rule advances `state.pos` in `silent` mode when it accepts a marker pair, matching markdown-it `skipToken` contract (prevents crashes in link-label scans like `a[★b★c`).
   - text conversion keeps raw `<` / `>` masked and restored as entities so wrapper injection does not re-enable raw HTML.
-  - in ruby mode, masked `<ruby>` wrappers are restored so `<ruby>漢字《かんじ》</ruby>` remains ruby HTML output.
+  - in ruby mode, masked `<ruby>` wrappers are restored so `<ruby>漢字《かんじ》</ruby>` remains ruby HTML output (wrapper pair required; tag match is case-insensitive).
 - Text token conversion order:
   - ruby (`convertRubyKnown`)
   - star/percent pair conversion on remaining `text` tokens in `html:true` (`convertStarCommentInlineSegment` / `convertPercentCommentInlineSegment`)
@@ -59,7 +62,7 @@
 - `patchCoreRulerOrderGuard` wraps core-ruler mutators; plugins that mutate `core.ruler.__rules__` directly (without mutators) bypass order-guard reordering.
 - The inline-ruler convert rule is registered once per `markdown-it` instance, but reads the latest normalized options from instance state so repeated `.use(...)` calls can reconfigure behavior safely.
 - Regex compatibility fallback is built in:
-  - ruby conversion first tries Unicode property escapes (`\p{sc=Han}`) and falls back to BMP Han ranges when unavailable.
+  - ruby conversion first tries Unicode property escapes (`\p{sc=Han}`) and falls back to BMP Han ranges when unavailable; both patterns support bare shorthand and paired `<ruby>...</ruby>` shorthand with case-insensitive tag matching.
   - HTML escaping avoids regex lookbehind so older JS engines can still load the module.
 
 ## Performance notes
@@ -70,3 +73,5 @@
 - Full suite: `npm test`
 - Fixture parser in `test/test.js` is strict (label-based expected HTML matching per option profile).
 - Option/edge assertions are separated in `test/option-assertions.js` (called from `test/test.js`).
+- Analyzer API assertions are in `test/analyzer-assertions.js` (called from `test/test.js`).
+- Inline preparse regression coverage includes bracket/link `skipToken` paths (e.g. `a[★b★c`, `[x★y★](...)`).

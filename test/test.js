@@ -5,6 +5,7 @@ import cjkBreaks from '@peaceroad/markdown-it-cjk-breaks-mod'
 import strongJa from '@peaceroad/markdown-it-strong-ja'
 import mdRendererInlineText from '../index.js'
 import { runOptionAssertions } from './option-assertions.js'
+import { runAnalyzerAssertions } from './analyzer-assertions.js'
 import { fileURLToPath } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -369,5 +370,6 @@ if (totalErrors > 0) {
 }
 
 runOptionAssertions({ mdit, strongJa, mdRendererInlineText })
+runAnalyzerAssertions({ mdit, mdRendererInlineText })
 
 console.log('All tests passed.')

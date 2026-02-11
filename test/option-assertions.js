@@ -24,6 +24,14 @@ export const runOptionAssertions = ({ mdit, strongJa, mdRendererInlineText }) =>
       md.render('前★<b>x</b>★後'),
       '<p>前<span class="star-comment">★&lt;b&gt;x&lt;/b&gt;★</span>後</p>\n',
     )
+    assert.strictEqual(
+      md.render('案内:<RUBY>寿司《すし》</RUBY>です。'),
+      '<p>案内:<ruby>寿司<rp>《</rp><rt>すし</rt><rp>》</rp></ruby>です。</p>\n',
+    )
+    assert.strictEqual(
+      md.render('案内:<RUBY>寿司《すし》です。'),
+      '<p>案内:&lt;RUBY&gt;<ruby>寿司<rp>《</rp><rt>すし</rt><rp>》</rp></ruby>です。</p>\n',
+    )
     assert.strictEqual(md.render('\\★x★'), '<p>★x★</p>\n')
     assert.strictEqual(md.render('\\%%x%%'), '<p>%%x%%</p>\n')
   }
@@ -50,6 +58,14 @@ export const runOptionAssertions = ({ mdit, strongJa, mdRendererInlineText }) =>
     assert.strictEqual(
       md.render('前<span title="★x★ %%y%% 漢字《かんじ》">漢字《ほんぶん》</span>後'),
       '<p>前<span title="★x★ %%y%% 漢字《かんじ》"><ruby>漢字<rp>《</rp><rt>ほんぶん</rt><rp>》</rp></ruby></span>後</p>\n',
+    )
+    assert.strictEqual(
+      md.render('案内:<RUBY>寿司《すし》</RUBY>です。'),
+      '<p>案内:<RUBY>寿司<rp>《</rp><rt>すし</rt><rp>》</rp></RUBY>です。</p>\n',
+    )
+    assert.strictEqual(
+      md.render('案内:<RUBY>寿司《すし》です。'),
+      '<p>案内:<RUBY><ruby>寿司<rp>《</rp><rt>すし</rt><rp>》</rp></ruby>です。</p>\n',
     )
     assert.strictEqual(
       md.render('<code>★★</code>'),
@@ -82,6 +98,30 @@ export const runOptionAssertions = ({ mdit, strongJa, mdRendererInlineText }) =>
     assert.strictEqual(
       md.render('%%A★B%%C★'),
       '<p><span class="percent-comment">%%A★B%%</span>C★</p>\n',
+    )
+  }
+
+  // bracket/link scanning edge cases should stay stable (skipToken / silent path)
+  {
+    const md = mdit({ html: true }).use(mdRendererInlineText, {
+      starComment: true,
+      percentComment: true,
+    })
+    assert.strictEqual(
+      md.render('a[★b★c'),
+      '<p>a[<span class="star-comment">★b★</span>c</p>\n',
+    )
+    assert.strictEqual(
+      md.render('a[%%b%%c'),
+      '<p>a[<span class="percent-comment">%%b%%</span>c</p>\n',
+    )
+    assert.strictEqual(
+      md.render('[x★y★](https://example.com)'),
+      '<p><a href="https://example.com">x<span class="star-comment">★y★</span></a></p>\n',
+    )
+    assert.strictEqual(
+      md.render('[x%%y%%](https://example.com)'),
+      '<p><a href="https://example.com">x<span class="percent-comment">%%y%%</span></a></p>\n',
     )
   }
 

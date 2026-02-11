@@ -35,7 +35,8 @@ console.log(md.render('昼食は親子丼《おやこどん》です。'))
 
 Ruby conversion is based on:
 
-- `(<ruby>)?([Han + 0-9A-Za-z._-]+)《reading》(<\/ruby>)?`
+- bare shorthand: `([Han + 0-9A-Za-z._-]+)《reading》`
+- explicit wrapper shorthand: `<ruby>base《reading》</ruby>` (open/close pair required, case-insensitive tag match)
 
 Examples:
 
@@ -55,6 +56,7 @@ Output: <p>お店の名物<ruby>鯛茶漬<rp>《</rp><rt>たいちゃづけ</rt>
 ```
 
 Ruby shorthand conversion works in both `html:true` and `html:false`. With `html:false`, HTML-like input is generally escaped, while ruby shorthand and explicit `<ruby>...</ruby>` wrappers are still rendered as ruby HTML.
+If the wrapper is unclosed (for example `<RUBY>寿司《すし》`), the wrapper text is treated as normal text and only shorthand part is converted.
 
 `html:false` example:
 
@@ -217,6 +219,49 @@ Notes:
 - If `starCommentLine` is `true`, `starCommentParagraph` is disabled.
 - If `percentCommentLine` is `true`, `percentCommentParagraph` is disabled.
 - `percentClass` is escaped via `md.utils.escapeHtml`.
+
+## Analyzer API (Experimental)
+
+You can also import a parserless analyzer API from:
+
+```js
+import {
+  normalizeOptions,
+  createRuntimePlan,
+  lineStartsWithStar,
+  lineStartsWithPercent,
+  isEscapedStar,
+  isEscapedPercent,
+  normalizeLineWindow,
+  expandToParagraphBoundaries,
+  shouldFullAnalyze,
+  scanInlineRanges,
+  analyzeLines,
+  analyzeLineWindow,
+} from '@peaceroad/markdown-it-renderer-inline-text/analyzer'
+```
+
+This API is intended for editor-side highlighting (for example VSCode) without running markdown-it.
+
+Recommended editor workflow:
+
+- Use `analyzeLineWindow(...)` for viewport/diff updates.
+- Expand a changed range with `expandToParagraphBoundaries(...)` (or use `analyzeLineWindow` default expansion).
+- Use `shouldFullAnalyze(changeCount, totalLines)` to decide when to fallback to full-document `analyzeLines(...)`.
+- Keep final HTML output on `markdown-it + plugin` (not analyzer output).
+
+Guaranteed parity scope:
+
+- marker escape parity (`★`, `%%`)
+- inline marker pairing in inline mode (`starInlineEnabled` / `percentInlineEnabled`)
+- line-start checks (`starCommentLine` / `percentCommentLine`)
+- ruby shorthand range detection outside inline marker-wrapped ranges
+
+Out of scope for strict parity:
+
+- full markdown-it token behavior (lists, links, emphasis nesting, fenced blocks)
+- HTML block/inline token boundary decisions made by markdown-it and other plugins
+- renderer-time wrapper suppression / list-item hiding behavior
 
 ## Notes
 
