@@ -6,11 +6,10 @@
   "type": "module",
   "exports": {
     ".": "./index.js",
-    "./analyzer": "./analyzer.js"
+    "./analyzer": "./src/analyzer.js"
   },
   "files": [
     "index.js",
-    "analyzer.js",
     "src",
     "LICENSE",
     "README.md"

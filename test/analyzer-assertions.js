@@ -12,7 +12,7 @@ import {
   scanInlineRanges,
   analyzeLines,
   analyzeLineWindow,
-} from '../analyzer.js'
+} from '../src/analyzer.js'
 
 export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
   {
