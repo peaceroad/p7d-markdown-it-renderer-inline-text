@@ -57,10 +57,6 @@ const trimLineStartIndex = (line) => {
   return idx
 }
 
-const getLineAt = (lines, idx) => {
-  return toText(lines[idx])
-}
-
 const clampInt = (value, min, max, fallback) => {
   if (value == null) return fallback
   const num = Number(value)
@@ -73,7 +69,7 @@ const clampInt = (value, min, max, fallback) => {
 
 const isBlankLine = (line) => line.trim() === ''
 
-const resolveCacheLimit = (option = {}) => {
+const resolveCacheLimit = (option) => {
   const fallback = DEFAULT_CACHE_SIZE_LIMIT
   if (!option || option.cacheLimit == null) return fallback
   const num = Number(option.cacheLimit)
@@ -145,11 +141,11 @@ const findMarkerClose = (text, markerType, from, isEscapedAt) => {
 
 const scanRubyRangesInSegment = (text, start, end, out) => {
   if (start >= end) return
-  const segment = text.slice(start, end)
-  if (segment.indexOf(RUBY_MARK_CHAR) === -1) return
-  RUBY_REGEXP.lastIndex = 0
+  const rubyMarkPos = text.indexOf(RUBY_MARK_CHAR, start)
+  if (rubyMarkPos === -1 || rubyMarkPos >= end) return
+  RUBY_REGEXP.lastIndex = start
   let match
-  while ((match = RUBY_REGEXP.exec(segment)) !== null) {
+  while ((match = RUBY_REGEXP.exec(text)) !== null) {
     const full = match[0]
     const wrappedBase = match[1]
     const wrappedReading = match[2]
@@ -158,11 +154,14 @@ const scanRubyRangesInSegment = (text, start, end, out) => {
     const base = wrappedBase || plainBase
     const reading = wrappedReading || plainReading
     if (!base || !reading) continue
-    const absStart = start + match.index
+    const absStart = match.index
+    if (absStart >= end) break
+    const absEnd = absStart + full.length
+    if (absEnd > end) continue
     out.push({
       type: 'ruby',
       start: absStart,
-      end: absStart + full.length,
+      end: absEnd,
       text: full,
     })
   }
@@ -181,8 +180,12 @@ const scanInlineRanges = (text, runtime) => {
   const hasPercent = allowPercent && src.indexOf('%%') !== -1
   const hasRuby = allowRuby && src.indexOf(RUBY_MARK_CHAR) !== -1
   if (!hasStar && !hasPercent && !hasRuby) return []
+  if (!hasStar && !hasPercent) {
+    const rubyOnlyRanges = []
+    scanRubyRangesInSegment(src, 0, src.length, rubyOnlyRanges)
+    return rubyOnlyRanges
+  }
 
-  const rubyRanges = []
   const markerRanges = []
   const backslashLookup = createBackslashLookup(src)
   const isEscapedAt = backslashLookup
@@ -209,17 +212,34 @@ const scanInlineRanges = (text, runtime) => {
     cursor = end
   }
 
+  let rubyRanges = null
   if (hasRuby) {
-    let segmentStart = 0
-    for (let i = 0; i < markerRanges.length; i++) {
-      const marker = markerRanges[i]
-      scanRubyRangesInSegment(src, segmentStart, marker.start, rubyRanges)
-      segmentStart = marker.end
+    const scannedRubyRanges = []
+    scanRubyRangesInSegment(src, 0, src.length, scannedRubyRanges)
+    if (!scannedRubyRanges.length) {
+      rubyRanges = scannedRubyRanges
+    } else if (!markerRanges.length) {
+      rubyRanges = scannedRubyRanges
+    } else {
+      rubyRanges = []
+      let markerIdx = 0
+      for (let i = 0; i < scannedRubyRanges.length; i++) {
+        const rubyRange = scannedRubyRanges[i]
+        while (markerIdx < markerRanges.length && markerRanges[markerIdx].end <= rubyRange.start) {
+          markerIdx++
+        }
+        if (
+          markerIdx < markerRanges.length
+          && markerRanges[markerIdx].start < rubyRange.end
+        ) {
+          continue
+        }
+        rubyRanges.push(rubyRange)
+      }
     }
-    scanRubyRangesInSegment(src, segmentStart, src.length, rubyRanges)
   }
 
-  if (!rubyRanges.length) return markerRanges
+  if (!rubyRanges || !rubyRanges.length) return markerRanges
   if (!markerRanges.length) return rubyRanges
 
   let i = 0
@@ -257,18 +277,24 @@ const getParagraphType = (line, runtime) => {
 const analyzeLineFast = (line, runtime) => {
   const src = toText(line)
   const inlineRanges = scanInlineRanges(src, runtime)
-  const lineStart = trimLineStartIndex(src)
   let lineModeRange = null
-  if (runtime && runtime.starLineEnabled && lineStartsWithStar(src)) {
-    lineModeRange = { type: 'star', start: lineStart, end: src.length, text: src.slice(lineStart) }
-  } else if (runtime && runtime.percentLineEnabled && lineStartsWithPercent(src)) {
-    lineModeRange = { type: 'percent', start: lineStart, end: src.length, text: src.slice(lineStart) }
+  if (runtime && src && (runtime.starLineEnabled || runtime.percentLineEnabled)) {
+    const lineStart = trimLineStartIndex(src)
+    if (lineStart < src.length) {
+      const firstCode = src.charCodeAt(lineStart)
+      if (runtime.starLineEnabled && firstCode === STAR_CHAR_CODE) {
+        lineModeRange = { type: 'star', start: lineStart, end: src.length, text: src.slice(lineStart) }
+      } else if (
+        runtime.percentLineEnabled
+        && firstCode === PERCENT_CHAR_CODE
+        && lineStart + 1 < src.length
+        && src.charCodeAt(lineStart + 1) === PERCENT_CHAR_CODE
+      ) {
+        lineModeRange = { type: 'percent', start: lineStart, end: src.length, text: src.slice(lineStart) }
+      }
+    }
   }
   return { inlineRanges, lineModeRange }
-}
-
-const toCacheKey = (line, runtime) => {
-  return String(runtime ? runtime.inlineProfileMask : 0) + '|' + line
 }
 
 const normalizeLineWindow = (lineCount, fromLine, toLine) => {
@@ -287,18 +313,19 @@ const expandToParagraphBoundaries = (lines, fromLine, toLine) => {
   let from = normalized.fromLine
   let to = normalized.toLine
 
-  while (from > 0 && !isBlankLine(getLineAt(srcLines, from - 1))) from--
-  while (to < lineCount && !isBlankLine(getLineAt(srcLines, to))) to++
+  while (from > 0 && !isBlankLine(toText(srcLines[from - 1]))) from--
+  while (to < lineCount && !isBlankLine(toText(srcLines[to]))) to++
   return { fromLine: from, toLine: to }
 }
 
-const shouldFullAnalyze = (changeCount, totalLines, option = {}) => {
+const shouldFullAnalyze = (changeCount, totalLines, option) => {
+  const cfg = option || {}
   const changed = Math.max(0, Math.trunc(Number(changeCount) || 0))
   const total = Math.max(0, Math.trunc(Number(totalLines) || 0))
   if (!changed || !total) return false
 
   const thresholdLines = (() => {
-    const raw = option.thresholdLines
+    const raw = cfg.thresholdLines
     if (raw == null) return DEFAULT_FULL_ANALYZE_THRESHOLD_LINES
     const num = Number(raw)
     if (!Number.isFinite(num)) return DEFAULT_FULL_ANALYZE_THRESHOLD_LINES
@@ -306,7 +333,7 @@ const shouldFullAnalyze = (changeCount, totalLines, option = {}) => {
     return int > 0 ? int : DEFAULT_FULL_ANALYZE_THRESHOLD_LINES
   })()
   const thresholdRatio = (() => {
-    const raw = option.thresholdRatio
+    const raw = cfg.thresholdRatio
     if (raw == null) return DEFAULT_FULL_ANALYZE_THRESHOLD_RATIO
     const num = Number(raw)
     if (!Number.isFinite(num)) return DEFAULT_FULL_ANALYZE_THRESHOLD_RATIO
@@ -320,37 +347,43 @@ const shouldFullAnalyze = (changeCount, totalLines, option = {}) => {
 const analyzeLines = (lines, runtime, prevState = null) => {
   const activeRuntime = runtime || createRuntimePlan({})
   const srcLines = Array.isArray(lines) ? lines.map(toText) : []
-  if (!srcLines.length) return createEmptyAnalyzeResult(activeRuntime.inlineProfileMask)
-  const cacheLimit = resolveCacheLimit()
+  const lineCount = srcLines.length
+  if (!lineCount) return createEmptyAnalyzeResult(activeRuntime.inlineProfileMask)
+  const cacheLimit = DEFAULT_CACHE_SIZE_LIMIT
   const prevCache = prevState
     && prevState.inlineProfileMask === activeRuntime.inlineProfileMask
     && prevState.lineCache instanceof Map
     ? prevState.lineCache
     : null
   const lineCache = prevCache ? new Map(prevCache) : new Map()
-  const results = new Array(srcLines.length)
-  const paragraphTypes = new Array(srcLines.length).fill(null)
+  const results = new Array(lineCount)
+  const paragraphTypes = new Array(lineCount).fill(null)
+  const blankFlags = new Array(lineCount)
   let cacheHits = 0
+
+  for (let i = 0; i < lineCount; i++) {
+    blankFlags[i] = isBlankLine(srcLines[i])
+  }
 
   // Paragraph detection: first non-empty line in each blank-line separated block.
   let blockStart = 0
-  while (blockStart < srcLines.length) {
-    while (blockStart < srcLines.length && srcLines[blockStart].trim() === '') blockStart++
-    if (blockStart >= srcLines.length) break
+  while (blockStart < lineCount) {
+    while (blockStart < lineCount && blankFlags[blockStart]) blockStart++
+    if (blockStart >= lineCount) break
     let blockEnd = blockStart + 1
-    while (blockEnd < srcLines.length && srcLines[blockEnd].trim() !== '') blockEnd++
+    while (blockEnd < lineCount && !blankFlags[blockEnd]) blockEnd++
     const paragraphType = getParagraphType(srcLines[blockStart], activeRuntime)
     if (paragraphType) {
       for (let i = blockStart; i < blockEnd; i++) {
-        if (srcLines[i].trim() !== '') paragraphTypes[i] = paragraphType
+        paragraphTypes[i] = paragraphType
       }
     }
     blockStart = blockEnd
   }
 
-  for (let i = 0; i < srcLines.length; i++) {
+  for (let i = 0; i < lineCount; i++) {
     const line = srcLines[i]
-    const key = toCacheKey(line, activeRuntime)
+    const key = line
     let base = null
     if (prevCache && prevCache.has(key)) {
       base = prevCache.get(key)
@@ -377,15 +410,15 @@ const analyzeLines = (lines, runtime, prevState = null) => {
     },
     stats: {
       cacheHits,
-      lineCount: srcLines.length,
-      analyzedCount: srcLines.length,
+      lineCount,
+      analyzedCount: lineCount,
       analyzedFrom: 0,
-      analyzedTo: srcLines.length,
+      analyzedTo: lineCount,
     },
   }
 }
 
-const analyzeLineWindow = (lines, runtime, fromLine, toLine, prevState = null, option = {}) => {
+const analyzeLineWindow = (lines, runtime, fromLine, toLine, prevState = null, option) => {
   const activeRuntime = runtime || createRuntimePlan({})
   const srcLines = Array.isArray(lines) ? lines : []
   if (!srcLines.length) return createEmptyAnalyzeResult(activeRuntime.inlineProfileMask)
@@ -406,16 +439,25 @@ const analyzeLineWindow = (lines, runtime, fromLine, toLine, prevState = null, o
     : null
   const lineCache = prevCache ? new Map(prevCache) : new Map()
   const results = []
-  const paragraphTypes = new Array(to - from).fill(null)
+  const windowLength = Math.max(0, to - from)
+  const paragraphTypes = new Array(windowLength).fill(null)
+  const windowLines = new Array(windowLength)
+  const blankFlags = new Array(windowLength)
   let cacheHits = 0
+
+  for (let i = 0; i < windowLength; i++) {
+    const line = toText(srcLines[from + i])
+    windowLines[i] = line
+    blankFlags[i] = isBlankLine(line)
+  }
 
   let blockStart = from
   while (blockStart < to) {
-    while (blockStart < to && isBlankLine(getLineAt(srcLines, blockStart))) blockStart++
+    while (blockStart < to && blankFlags[blockStart - from]) blockStart++
     if (blockStart >= to) break
     let blockEnd = blockStart + 1
-    while (blockEnd < to && !isBlankLine(getLineAt(srcLines, blockEnd))) blockEnd++
-    const paragraphType = getParagraphType(getLineAt(srcLines, blockStart), activeRuntime)
+    while (blockEnd < to && !blankFlags[blockEnd - from]) blockEnd++
+    const paragraphType = getParagraphType(windowLines[blockStart - from], activeRuntime)
     if (paragraphType) {
       for (let i = blockStart; i < blockEnd; i++) {
         paragraphTypes[i - from] = paragraphType
@@ -425,8 +467,8 @@ const analyzeLineWindow = (lines, runtime, fromLine, toLine, prevState = null, o
   }
 
   for (let i = from; i < to; i++) {
-    const line = getLineAt(srcLines, i)
-    const key = toCacheKey(line, activeRuntime)
+    const line = windowLines[i - from]
+    const key = line
     let base = null
     if (prevCache && prevCache.has(key)) {
       base = prevCache.get(key)

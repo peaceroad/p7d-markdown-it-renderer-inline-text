@@ -75,6 +75,18 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
 
   {
     const runtime = createRuntimePlan({
+      ruby: true,
+      starComment: true,
+    })
+    const ranges = scanInlineRanges('漢字《A★B★》', runtime)
+    assert.deepStrictEqual(
+      ranges.map((r) => [r.type, r.text]),
+      [['star', '★B★']],
+    )
+  }
+
+  {
+    const runtime = createRuntimePlan({
       starComment: true,
       percentComment: true,
       ruby: false,

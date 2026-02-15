@@ -23,7 +23,7 @@
   "license": "MIT",
   "devDependencies": {
     "@peaceroad/markdown-it-cjk-breaks-mod": "^0.1.7",
-    "@peaceroad/markdown-it-strong-ja": "^0.7.2",
+    "@peaceroad/markdown-it-strong-ja": "^0.8.0",
     "markdown-it": "^14.1.0"
   }
 }

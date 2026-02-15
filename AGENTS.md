@@ -68,6 +68,10 @@
 ## Performance notes
 - Main perf check: `npm run perf` (`test/material/perf.js`).
 - Deep inline-token spot check: `node test/material/perf-inline-tokens.js` (env: `ITER`, `REPEAT`, `REPEAT_HEAVY`).
+- Analyzer hot paths:
+  - `scanInlineRanges` scans ruby matches once per line and filters out ranges that overlap already-detected star/percent marker ranges.
+  - `analyzeLines` / `analyzeLineWindow` precompute blank-line flags per target slice to avoid repeated `trim()` work during paragraph-type propagation.
+  - `lineStartsWithStar` / `lineStartsWithPercent` check the first non-whitespace marker directly; escape parity is handled separately by `isEscaped*` helpers where needed.
 
 ## Tests
 - Full suite: `npm test`

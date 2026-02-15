@@ -60,8 +60,7 @@ export const lineStartsWithStar = (line) => {
   if (!src) return false
   const idx = trimLineStartIndex(src)
   if (idx >= src.length) return false
-  if (src.charCodeAt(idx) !== STAR_CHAR_CODE) return false
-  return (countBackslashesBefore(src, idx) & 1) === 0
+  return src.charCodeAt(idx) === STAR_CHAR_CODE
 }
 
 export const lineStartsWithPercent = (line) => {
@@ -69,10 +68,7 @@ export const lineStartsWithPercent = (line) => {
   if (!src) return false
   const idx = trimLineStartIndex(src)
   if (idx >= src.length - 1) return false
-  if (src.charCodeAt(idx) !== PERCENT_CHAR_CODE || src.charCodeAt(idx + 1) !== PERCENT_CHAR_CODE) {
-    return false
-  }
-  return (countBackslashesBefore(src, idx) & 1) === 0
+  return src.charCodeAt(idx) === PERCENT_CHAR_CODE && src.charCodeAt(idx + 1) === PERCENT_CHAR_CODE
 }
 
 export const normalizeOptions = (option = {}) => {
