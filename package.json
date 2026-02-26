@@ -1,6 +1,6 @@
 {
   "name": "@peaceroad/markdown-it-renderer-inline-text",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "A markdown-it plugin. Modify inline text of rendering HTML; Ruby, Star Comment.",
   "main": "index.js",
   "type": "module",
@@ -22,7 +22,7 @@
   "repository": "https://github.com/peaceroad/p7d-markdown-it-renderer-inline-text",
   "license": "MIT",
   "devDependencies": {
-    "@peaceroad/markdown-it-cjk-breaks-mod": "^0.1.7",
+    "@peaceroad/markdown-it-cjk-breaks-mod": "^0.1.8",
     "@peaceroad/markdown-it-strong-ja": "^0.8.0",
     "markdown-it": "^14.1.0"
   }
