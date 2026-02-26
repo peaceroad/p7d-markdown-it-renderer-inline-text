@@ -236,7 +236,7 @@ const getInlineHtmlTagInfo = (tag) => {
 
 const applyTagToStack = (stack, tag) => {
   const info = getInlineHtmlTagInfo(tag)
-  if (!info) return { info: null }
+  if (!info) return null
   if (info.isClosing) {
     if (stack.length && stack[stack.length - 1] === info.tagName) {
       stack.pop()
@@ -251,7 +251,7 @@ const applyTagToStack = (stack, tag) => {
   } else if (!info.isVoid && !info.isSelfClosing) {
     stack.push(info.tagName)
   }
-  return { info }
+  return info
 }
 
 const findHtmlTagEnd = (value, start) => {
@@ -383,8 +383,7 @@ const ensureInlineHtmlContext = (tokens) => {
     if (token.type === 'html_inline') {
       const raw = token.content || ''
       if (!raw || raw[0] !== '<') continue
-      const result = applyTagToStack(stack, raw)
-      if (!result.info) {
+      if (!applyTagToStack(stack, raw)) {
         continue
       }
     } else if (token.type === 'text' && stack.length) {
@@ -394,20 +393,6 @@ const ensureInlineHtmlContext = (tokens) => {
       }
     }
   }
-}
-
-const hasInlineHtmlTokens = (tokens) => {
-  if (!tokens) return false
-  if (tokens.__hasInlineHtmlTokens !== undefined) return tokens.__hasInlineHtmlTokens
-  let found = false
-  for (let i = 0; i < tokens.length; i++) {
-    if (tokens[i] && tokens[i].type === 'html_inline') {
-      found = true
-      break
-    }
-  }
-  tokens.__hasInlineHtmlTokens = found
-  return found
 }
 
 const hideInlineTokensAfter = (tokens, startIdx, metaKey = '__starCommentDelete') => {
@@ -1133,24 +1118,22 @@ const ensureStarCommentLineCore = (md) => {
         if (!ignoredLines || !ignoredLines.has(lineIdx)) {
           if (getCachedStarLineFlag(cache, lineIdx)) {
             let markLine = true
-            if (md.__starCommentLineGlobalEnabled) {
-              let lookahead = lineIdx + 1
-              while (lookahead < blockEnd) {
-                if (ignoredLines && ignoredLines.has(lookahead)) {
-                  lookahead++
-                  continue
-                }
-                const trimmed = getCachedTrimmedLine(cache, lookahead)
-                if (trimmed === '') {
-                  lookahead++
-                  continue
-                }
-                if (!getCachedStarLineFlag(cache, lookahead)) {
-                  markLine = false
-                  break
-                }
+            let lookahead = lineIdx + 1
+            while (lookahead < blockEnd) {
+              if (ignoredLines && ignoredLines.has(lookahead)) {
                 lookahead++
+                continue
               }
+              const trimmed = getCachedTrimmedLine(cache, lookahead)
+              if (trimmed === '') {
+                lookahead++
+                continue
+              }
+              if (!getCachedStarLineFlag(cache, lookahead)) {
+                markLine = false
+                break
+              }
+              lookahead++
             }
             if (markLine) {
               token.meta = token.meta || {}
@@ -1202,24 +1185,22 @@ const ensurePercentCommentLineCore = (md) => {
         if (!ignoredLines || !ignoredLines.has(lineIdx)) {
           if (getCachedPercentLineFlag(cache, lineIdx)) {
             let markLine = true
-            if (md.__percentCommentLineGlobalEnabled) {
-              let lookahead = lineIdx + 1
-              while (lookahead < blockEnd) {
-                if (ignoredLines && ignoredLines.has(lookahead)) {
-                  lookahead++
-                  continue
-                }
-                const trimmed = getCachedTrimmedLine(cache, lookahead)
-                if (trimmed === '') {
-                  lookahead++
-                  continue
-                }
-                if (!getCachedPercentLineFlag(cache, lookahead)) {
-                  markLine = false
-                  break
-                }
+            let lookahead = lineIdx + 1
+            while (lookahead < blockEnd) {
+              if (ignoredLines && ignoredLines.has(lookahead)) {
                 lookahead++
+                continue
               }
+              const trimmed = getCachedTrimmedLine(cache, lookahead)
+              if (trimmed === '') {
+                lookahead++
+                continue
+              }
+              if (!getCachedPercentLineFlag(cache, lookahead)) {
+                markLine = false
+                break
+              }
+              lookahead++
             }
             if (markLine) {
               token.meta = token.meta || {}
@@ -1756,13 +1737,13 @@ const compileInlineTokenRunner = (profile) => {
         continue
       }
 
-      if (htmlEnabled && hasInlineHtmlTokens(children)) {
+      if (htmlEnabled) {
         ensureInlineHtmlContext(children)
       }
-      if (starLineEnabled && blockHasStar && !children.__starCommentLineGlobalProcessed) {
+      if (starLineEnabled && blockHasStar) {
         markStarCommentLineGlobal(children, opt)
       }
-      if (percentLineEnabled && blockHasPercent && !children.__percentCommentLineGlobalProcessed) {
+      if (percentLineEnabled && blockHasPercent) {
         markPercentCommentLineGlobal(children, opt)
       }
 
@@ -1972,7 +1953,16 @@ function rendererInlineText (md, option = {}) {
   const percentParagraphClass = runtime.percentParagraphClass
   const percentParagraphClassEnabled = runtime.percentParagraphClassEnabled
   const anyEnabled = runtime.anyEnabled
-  md.__escapeMetaEnabled = !!(starEnabled || percentEnabled)
+  const markerEnabled = starEnabled || percentEnabled
+  const needsParagraphSupport = !!(
+    (starParagraphEnabled && starDeleteEnabled)
+    || (starLineEnabled && starDeleteEnabled)
+    || (percentParagraphEnabled && percentDeleteEnabled)
+    || (percentLineEnabled && percentDeleteEnabled)
+    || starParagraphClassEnabled
+    || percentParagraphClassEnabled
+  )
+  md.__escapeMetaEnabled = markerEnabled
   md.__starCommentLineGlobalEnabled = starLineEnabled
   md.__starCommentParagraphDeleteEnabled = !!(starParagraphEnabled && starDeleteEnabled)
   md.__percentCommentParagraphDeleteEnabled = !!(percentParagraphEnabled && percentDeleteEnabled)
@@ -1997,29 +1987,21 @@ function rendererInlineText (md, option = {}) {
   if (percentLineEnabled) {
     ensurePercentCommentLineCore(md)
   }
-  if (starParagraphEnabled && starDeleteEnabled) {
+  if (needsParagraphSupport) {
     ensureParagraphDeleteSupport(md)
+  }
+  if (starParagraphEnabled && starDeleteEnabled) {
     ensureStarCommentParagraphDeleteCore(md)
   }
-  if (starLineEnabled && starDeleteEnabled) {
-    ensureParagraphDeleteSupport(md)
-  }
   if (percentParagraphEnabled && percentDeleteEnabled) {
-    ensureParagraphDeleteSupport(md)
     ensurePercentCommentParagraphDeleteCore(md)
   }
-  if (percentLineEnabled && percentDeleteEnabled) {
-    ensureParagraphDeleteSupport(md)
-  }
-  if (starParagraphClassEnabled || percentParagraphClassEnabled) {
-    ensureParagraphDeleteSupport(md)
-  }
 
-  if ((starEnabled || percentEnabled) && !md.__escapeMetaReady) {
+  if (markerEnabled && !md.__escapeMetaReady) {
     md.__escapeMetaReady = true
     md.inline.ruler.before('escape', 'star_percent_escape_meta', applyEscapeMetaInlineRule)
   }
-  if ((starEnabled || percentEnabled) && !md.__commentPreparseReady) {
+  if (markerEnabled && !md.__commentPreparseReady) {
     md.__commentPreparseReady = true
     md.inline.ruler.before('text', 'star_percent_comment_preparse', createCommentPreparseInlineRule(md))
   }

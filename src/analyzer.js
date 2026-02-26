@@ -17,6 +17,8 @@ const RUBY_REGEXP_FALLBACK_CONTENT = '(?:<ruby>(' + RUBY_BASE_FALLBACK_CONTENT +
 const DEFAULT_CACHE_SIZE_LIMIT = 4096
 const DEFAULT_FULL_ANALYZE_THRESHOLD_LINES = 100
 const DEFAULT_FULL_ANALYZE_THRESHOLD_RATIO = 0.02
+const NEVER_ESCAPED = () => false
+const DEFAULT_RUNTIME = createRuntimePlan({})
 
 const createRubyRegExp = () => {
   try {
@@ -79,7 +81,7 @@ const resolveCacheLimit = (option) => {
 }
 
 const setCacheEntry = (lineCache, key, value, cacheLimit) => {
-  if (lineCache.has(key)) lineCache.delete(key)
+  lineCache.delete(key)
   lineCache.set(key, value)
   while (lineCache.size > cacheLimit) {
     const oldestKey = lineCache.keys().next().value
@@ -169,7 +171,7 @@ const scanRubyRangesInSegment = (text, start, end, out) => {
 
 const scanInlineRanges = (text, runtime) => {
   const src = toText(text)
-  const activeRuntime = runtime || createRuntimePlan({})
+  const activeRuntime = runtime || DEFAULT_RUNTIME
   if (!src) return []
   if (!activeRuntime.anyEnabled) return []
   const allowStar = !!activeRuntime.starInlineEnabled
@@ -190,7 +192,7 @@ const scanInlineRanges = (text, runtime) => {
   const backslashLookup = createBackslashLookup(src)
   const isEscapedAt = backslashLookup
     ? (idx) => (backslashLookup(idx) & 1) === 1
-    : () => false
+    : NEVER_ESCAPED
 
   let cursor = 0
   while (cursor < src.length) {
@@ -345,7 +347,7 @@ const shouldFullAnalyze = (changeCount, totalLines, option) => {
 }
 
 const analyzeLines = (lines, runtime, prevState = null) => {
-  const activeRuntime = runtime || createRuntimePlan({})
+  const activeRuntime = runtime || DEFAULT_RUNTIME
   const srcLines = Array.isArray(lines) ? lines.map(toText) : []
   const lineCount = srcLines.length
   if (!lineCount) return createEmptyAnalyzeResult(activeRuntime.inlineProfileMask)
@@ -384,11 +386,8 @@ const analyzeLines = (lines, runtime, prevState = null) => {
   for (let i = 0; i < lineCount; i++) {
     const line = srcLines[i]
     const key = line
-    let base = null
-    if (prevCache && prevCache.has(key)) {
-      base = prevCache.get(key)
-      cacheHits++
-    }
+    let base = prevCache ? prevCache.get(key) : null
+    if (base) cacheHits++
     if (!base) {
       base = analyzeLineFast(line, activeRuntime)
     }
@@ -419,7 +418,7 @@ const analyzeLines = (lines, runtime, prevState = null) => {
 }
 
 const analyzeLineWindow = (lines, runtime, fromLine, toLine, prevState = null, option) => {
-  const activeRuntime = runtime || createRuntimePlan({})
+  const activeRuntime = runtime || DEFAULT_RUNTIME
   const srcLines = Array.isArray(lines) ? lines : []
   if (!srcLines.length) return createEmptyAnalyzeResult(activeRuntime.inlineProfileMask)
   const lineCount = srcLines.length
@@ -469,11 +468,8 @@ const analyzeLineWindow = (lines, runtime, fromLine, toLine, prevState = null, o
   for (let i = from; i < to; i++) {
     const line = windowLines[i - from]
     const key = line
-    let base = null
-    if (prevCache && prevCache.has(key)) {
-      base = prevCache.get(key)
-      cacheHits++
-    }
+    let base = prevCache ? prevCache.get(key) : null
+    if (base) cacheHits++
     if (!base) {
       base = analyzeLineFast(line, activeRuntime)
     }

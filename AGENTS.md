@@ -61,6 +61,7 @@
 - Because conversion is token-based (markdown-it output), behavior across HTML boundaries depends on markdown-it block/inline parsing (e.g. blank-line-separated content inside `<div>` can become inline tokens and thus be converted).
 - `patchCoreRulerOrderGuard` wraps core-ruler mutators; plugins that mutate `core.ruler.__rules__` directly (without mutators) bypass order-guard reordering.
 - The inline-ruler convert rule is registered once per `markdown-it` instance, but reads the latest normalized options from instance state so repeated `.use(...)` calls can reconfigure behavior safely.
+- Analyzer cache keys are currently line-text based (`lineCache` keyed by the full line string). This is safe for the current line-local cached payloads, but future line-index/context-dependent metadata would require a wider cache key.
 - Regex compatibility fallback is built in:
   - ruby conversion first tries Unicode property escapes (`\p{sc=Han}`) and falls back to BMP Han ranges when unavailable; both patterns support bare shorthand and paired `<ruby>...</ruby>` shorthand with case-insensitive tag matching.
   - HTML escaping avoids regex lookbehind so older JS engines can still load the module.
@@ -71,6 +72,8 @@
 - Analyzer hot paths:
   - `scanInlineRanges` scans ruby matches once per line and filters out ranges that overlap already-detected star/percent marker ranges.
   - `analyzeLines` / `analyzeLineWindow` precompute blank-line flags per target slice to avoid repeated `trim()` work during paragraph-type propagation.
+  - Analyzer entry points reuse a module-level default runtime (`createRuntimePlan({})`) when callers omit runtime, avoiding repeated fallback runtime allocations.
+  - Cache refresh paths prefer single-probe `Map` operations (`get` / `delete`) over paired `has + get/delete` checks.
   - `lineStartsWithStar` / `lineStartsWithPercent` check the first non-whitespace marker directly; escape parity is handled separately by `isEscaped*` helpers where needed.
 
 ## Tests
