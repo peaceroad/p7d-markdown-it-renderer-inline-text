@@ -5,11 +5,11 @@
 - It prioritizes compatibility and robustness with other markdown-it plugins and HTML blocks while keeping performance competitive.
 
 ## Plugin wiring
-- `rendererInlineText` normalizes options on each `.use(...)` call and stores the latest option set on the `markdown-it` instance.
+- `rendererInlineText` normalizes options at install time and binds them into installed rule closures.
 - `starCommentLine` overrides `starCommentParagraph`; `percentCommentLine` overrides `percentCommentParagraph`.
 - Hooks are patched once per instance:
   - `md.inline.ruler.before('escape', 'star_percent_escape_meta', applyEscapeMetaInlineRule)` captures backslash parity for ★/%% before markdown-it's escape rule runs (emits sentinels that normalize into token meta).
-  - `md.inline.ruler.before('text', 'star_percent_comment_preparse', createCommentPreparseInlineRule(md))` runs inline preparse for ★/%% pairs in inline mode for both `html:false` and `html:true`.
+  - `md.inline.ruler.before('text', 'star_percent_comment_preparse', createCommentPreparseInlineRule(runtime, preparseProfile))` runs inline preparse for ★/%% pairs in inline mode for both `html:false` and `html:true`.
   - `safeCoreRule(..., 'inline_ruler_convert', ...)` installs the core rule for conversion.
   - `patchCoreRulerOrderGuard` wraps core-ruler mutators (`push/after/before/at`) and keeps `inline_ruler_convert` and `paragraph_wrapper_adjust` at the tail, so `text_join` / `cjk_breaks` and later-added core rules don't invalidate metadata.
   - `safeCoreRule(... 'star_comment_line_marker' ...)` runs when `starCommentLine` is enabled.
@@ -20,7 +20,8 @@
 
 ## Runtime compilation
 - `createRuntimePlan` precomputes feature flags, inline-mode flags (`starInlineEnabled` / `percentInlineEnabled`), and `inlineProfileMask` for the current option set.
-- Inline conversion is compiled per `(inlineProfileMask + htmlEnabled bit)` and cached in `md.__inlineTokenRunnerCache`.
+- Inline conversion is compiled per `(inlineProfileMask + htmlEnabled bit)` and cached in the installed core-rule closure for that `markdown-it` instance.
+- `percentClass` / delete-mode decisions are fixed at install time and propagated into preparse/compiled runners so hot paths avoid repeated option-object reads.
 - Analyzer subpath (`./analyzer`) reuses the same option/runtime semantics without running markdown-it.
 - Shared option/runtime/line-parity helpers live in `src/shared-runtime.js` and are consumed by both `index.js` and `src/analyzer.js` to reduce drift.
 - Analyzer exposes windowed/diff-friendly helpers (`analyzeLineWindow`, `expandToParagraphBoundaries`, `shouldFullAnalyze`) for editor integrations.
@@ -49,18 +50,18 @@
   - line delete mode suppresses line content and adjacent breaks.
   - paragraph delete mode hides remaining inline tokens and sets `__starCommentParagraphDelete` / `__percentCommentParagraphDelete`.
   - optional paragraph class mode can add class directly on `<p>` (`starCommentParagraphClass` / `percentCommentParagraphClass`) and skip inner span wrapping.
-  - `paragraph_wrapper_adjust` has a runtime gate (`md.__paragraphWrapperAdjustEnabled`) and source-marker fast skip to avoid scanning unrelated documents.
+  - `paragraph_wrapper_adjust` is installed only when needed and keeps a source-marker fast skip to avoid scanning unrelated documents.
 
 ## Star-comment line metadata (core rule)
-- `ensureStarCommentLineCore` caches per-source line info in `md.__starCommentLineCache` (lines, `starFlags`, `trimmedLines`).
-- `isIgnoredStarLineToken` marks fenced/code/math blocks so their editor lines are skipped.
+- `ensureStarCommentLineCore` / `ensurePercentCommentLineCore` share a per-render line cache on core state (`state.__commentLineCache`) with source lines, marker flags, and trimmed-line snapshots.
+- `isIgnoredCommentLineToken` marks fenced/code/math blocks so their editor lines are skipped.
 - Inline token arrays store `__starCommentLineIgnoredLines` and `__starCommentLineBaseLine` for later line mapping.
 - For each inline block, the first non-empty line decides whether `STAR_COMMENT_LINE_META_KEY` is set; in line mode it requires all non-empty lines in the block to be ★ lines.
 
 ## Known concerns
 - Because conversion is token-based (markdown-it output), behavior across HTML boundaries depends on markdown-it block/inline parsing (e.g. blank-line-separated content inside `<div>` can become inline tokens and thus be converted).
 - `patchCoreRulerOrderGuard` wraps core-ruler mutators; plugins that mutate `core.ruler.__rules__` directly (without mutators) bypass order-guard reordering.
-- The inline-ruler convert rule is registered once per `markdown-it` instance, but reads the latest normalized options from instance state so repeated `.use(...)` calls can reconfigure behavior safely.
+- Plugin installation is first-use-wins per `markdown-it` instance; use a fresh instance to change option sets.
 - Analyzer cache keys are currently line-text based (`lineCache` keyed by the full line string). This is safe for the current line-local cached payloads, but future line-index/context-dependent metadata would require a wider cache key.
 - Regex compatibility fallback is built in:
   - ruby conversion first tries Unicode property escapes (`\p{sc=Han}`) and falls back to BMP Han ranges when unavailable; both patterns support bare shorthand and paired `<ruby>...</ruby>` shorthand with case-insensitive tag matching.
@@ -72,9 +73,11 @@
 - Analyzer hot paths:
   - `scanInlineRanges` scans ruby matches once per line and filters out ranges that overlap already-detected star/percent marker ranges.
   - `analyzeLines` / `analyzeLineWindow` precompute blank-line flags per target slice to avoid repeated `trim()` work during paragraph-type propagation.
+  - `analyzeLines` / `analyzeLineWindow` short-circuit to noop line descriptors when the runtime has no enabled features.
   - Analyzer entry points reuse a module-level default runtime (`createRuntimePlan({})`) when callers omit runtime, avoiding repeated fallback runtime allocations.
   - Cache refresh paths prefer single-probe `Map` operations (`get` / `delete`) over paired `has + get/delete` checks.
   - `lineStartsWithStar` / `lineStartsWithPercent` check the first non-whitespace marker directly; escape parity is handled separately by `isEscaped*` helpers where needed.
+  - In renderer hot paths, raw inline-HTML context scanning is skipped unless the inline token array actually contains `html_inline` tokens.
 
 ## Tests
 - Full suite: `npm test`

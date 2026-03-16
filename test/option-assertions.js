@@ -123,6 +123,10 @@ export const runOptionAssertions = ({ mdit, strongJa, mdRendererInlineText }) =>
       md.render('[x%%y%%](https://example.com)'),
       '<p><a href="https://example.com">x<span class="percent-comment">%%y%%</span></a></p>\n',
     )
+    assert.strictEqual(
+      md.render('%%a\\%%%b%%'),
+      '<p><span class="percent-comment">%%a\\%%%</span>b%%</p>\n',
+    )
   }
 
   // html:true with markdown-it-strong-ja: marker-priority output should stay stable
@@ -170,6 +174,29 @@ export const runOptionAssertions = ({ mdit, strongJa, mdRendererInlineText }) =>
     assert.strictEqual(
       mdStarLineWithPercentDelete.render('★行コメント\n通常'),
       '<p><span class="star-comment">★行コメント</span>\n通常</p>\n',
+    )
+  }
+
+  // later core rules may blank inline.content; line-mode fallback must still inspect children
+  {
+    const md = mdit().use(mdRendererInlineText, {
+      starComment: true,
+      starCommentLine: true,
+      percentComment: true,
+      percentCommentLine: true,
+    })
+    md.core.ruler.after('inline', 'blank_inline_content_for_test', (state) => {
+      const tokens = state.tokens || []
+      for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i]
+        if (token && token.type === 'inline' && token.children && token.children.length) {
+          token.content = ''
+        }
+      }
+    })
+    assert.strictEqual(
+      md.render('★line\n%%note'),
+      '<p><span class="star-comment">★line</span>\n<span class="percent-comment">%%note</span></p>\n',
     )
   }
 
@@ -265,7 +292,7 @@ export const runOptionAssertions = ({ mdit, strongJa, mdRendererInlineText }) =>
     )
   }
 
-  // option reconfiguration on the same markdown-it instance should work
+  // plugin installation is first-use-wins on the same markdown-it instance
   {
     const mdReuse = mdit().use(mdRendererInlineText, {
       starComment: true,
@@ -278,14 +305,22 @@ export const runOptionAssertions = ({ mdit, strongJa, mdRendererInlineText }) =>
       percentComment: true,
       starCommentDelete: true,
     })
-    assert.strictEqual(mdReuse.render('前★星★後'), '<p>前後</p>\n')
+    assert.strictEqual(mdReuse.render('前★星★後'), '<p>前<span class="star-comment">★星★</span>後</p>\n')
 
     mdReuse.use(mdRendererInlineText, {
       starComment: false,
       percentComment: true,
     })
-    assert.strictEqual(mdReuse.render('前★星★後'), '<p>前★星★後</p>\n')
+    assert.strictEqual(mdReuse.render('前★星★後'), '<p>前<span class="star-comment">★星★</span>後</p>\n')
     assert.strictEqual(mdReuse.render('前%%P%%後'), '<p>前<span class="percent-comment">%%P%%</span>後</p>\n')
+    assert.strictEqual(
+      mdReuse.inline.ruler.__rules__.filter((rule) => rule.name === 'star_percent_comment_preparse').length,
+      1,
+    )
+    assert.strictEqual(
+      mdReuse.core.ruler.__rules__.filter((rule) => rule.name === 'inline_ruler_convert').length,
+      1,
+    )
   }
 
   // option independence should hold in html:true and html:false

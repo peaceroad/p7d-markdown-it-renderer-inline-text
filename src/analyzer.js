@@ -4,60 +4,22 @@ import {
   RUBY_MARK_CHAR,
   normalizeOptions,
   createRuntimePlan,
+  toText,
+  createBackslashLookup,
+  createRubyRegExp,
   lineStartsWithStar,
   lineStartsWithPercent,
   isEscapedStar,
   isEscapedPercent,
+  trimLineStartIndex,
 } from './shared-runtime.js'
 
-const RUBY_BASE_CONTENT = '[\\p{sc=Han}0-9A-Za-z.\\-_]+'
-const RUBY_BASE_FALLBACK_CONTENT = '[\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF0-9A-Za-z.\\-_]+'
-const RUBY_REGEXP_CONTENT = '(?:<ruby>(' + RUBY_BASE_CONTENT + ')《([^》]+?)》<\\/ruby>|(' + RUBY_BASE_CONTENT + ')《([^》]+?)》)'
-const RUBY_REGEXP_FALLBACK_CONTENT = '(?:<ruby>(' + RUBY_BASE_FALLBACK_CONTENT + ')《([^》]+?)》<\\/ruby>|(' + RUBY_BASE_FALLBACK_CONTENT + ')《([^》]+?)》)'
 const DEFAULT_CACHE_SIZE_LIMIT = 4096
 const DEFAULT_FULL_ANALYZE_THRESHOLD_LINES = 100
 const DEFAULT_FULL_ANALYZE_THRESHOLD_RATIO = 0.02
 const NEVER_ESCAPED = () => false
 const DEFAULT_RUNTIME = createRuntimePlan({})
-
-const createRubyRegExp = () => {
-  try {
-    return new RegExp(RUBY_REGEXP_CONTENT, 'ugi')
-  } catch (err) {
-    return new RegExp(RUBY_REGEXP_FALLBACK_CONTENT, 'gi')
-  }
-}
-
 const RUBY_REGEXP = createRubyRegExp()
-
-const toText = (value) => {
-  if (typeof value === 'string') return value
-  if (value == null) return ''
-  return String(value)
-}
-
-const createBackslashLookup = (text) => {
-  if (!text || text.indexOf('\\') === -1) return null
-  const run = text.length > 0xFFFF
-    ? new Uint32Array(text.length + 1)
-    : new Uint16Array(text.length + 1)
-  let streak = 0
-  for (let i = 0; i < text.length; i++) {
-    if (text.charCodeAt(i) === 92) {
-      streak++
-    } else {
-      streak = 0
-    }
-    run[i + 1] = streak
-  }
-  return (idx) => run[idx]
-}
-
-const trimLineStartIndex = (line) => {
-  let idx = 0
-  while (idx < line.length && (line[idx] === ' ' || line[idx] === '\t')) idx++
-  return idx
-}
 
 const clampInt = (value, min, max, fallback) => {
   if (value == null) return fallback
@@ -71,13 +33,22 @@ const clampInt = (value, min, max, fallback) => {
 
 const isBlankLine = (line) => line.trim() === ''
 
-const resolveCacheLimit = (option) => {
-  const fallback = DEFAULT_CACHE_SIZE_LIMIT
-  if (!option || option.cacheLimit == null) return fallback
-  const num = Number(option.cacheLimit)
+const resolvePositiveInt = (value, fallback) => {
+  if (value == null) return fallback
+  const num = Number(value)
   if (!Number.isFinite(num)) return fallback
-  const limit = Math.trunc(num)
-  return limit > 0 ? limit : fallback
+  const int = Math.trunc(num)
+  return int > 0 ? int : fallback
+}
+
+const resolvePositiveNumber = (value, fallback) => {
+  if (value == null) return fallback
+  const num = Number(value)
+  return Number.isFinite(num) && num > 0 ? num : fallback
+}
+
+const resolveCacheLimit = (option) => {
+  return resolvePositiveInt(option && option.cacheLimit, DEFAULT_CACHE_SIZE_LIMIT)
 }
 
 const setCacheEntry = (lineCache, key, value, cacheLimit) => {
@@ -107,8 +78,56 @@ const createEmptyAnalyzeResult = (inlineProfileMask) => {
   }
 }
 
+const createDisabledAnalyzeLines = (srcLines, inlineProfileMask, from = 0, to = srcLines.length) => {
+  const lineCount = srcLines.length
+  const start = Math.max(0, from)
+  const end = Math.max(start, Math.min(lineCount, to))
+  const resultCount = end - start
+  const results = new Array(resultCount)
+  for (let i = start; i < end; i++) {
+    const text = toText(srcLines[i])
+    results[i - start] = {
+      index: i,
+      text,
+      inlineRanges: [],
+      lineModeRange: null,
+      paragraphType: null,
+    }
+  }
+  return {
+    lines: results,
+    state: {
+      lineCache: new Map(),
+      inlineProfileMask,
+    },
+    stats: {
+      cacheHits: 0,
+      lineCount,
+      analyzedCount: resultCount,
+      analyzedFrom: start,
+      analyzedTo: end,
+    },
+  }
+}
+
 const findNextInlineMarker = (text, from, allowStar, allowPercent, isEscapedAt) => {
   if (!allowStar && !allowPercent) return null
+  if (allowStar && !allowPercent) {
+    let i = text.indexOf('★', from)
+    while (i !== -1) {
+      if (!isEscapedAt(i)) return { type: 'star', start: i, length: 1 }
+      i = text.indexOf('★', i + 1)
+    }
+    return null
+  }
+  if (!allowStar && allowPercent) {
+    let i = text.indexOf('%%', from)
+    while (i !== -1) {
+      if (!isEscapedAt(i)) return { type: 'percent', start: i, length: 2 }
+      i = text.indexOf('%%', i + 1)
+    }
+    return null
+  }
   for (let i = from; i < text.length; i++) {
     if (allowStar && text.charCodeAt(i) === STAR_CHAR_CODE && !isEscapedAt(i)) {
       return { type: 'star', start: i, length: 1 }
@@ -128,15 +147,17 @@ const findNextInlineMarker = (text, from, allowStar, allowPercent, isEscapedAt) 
 
 const findMarkerClose = (text, markerType, from, isEscapedAt) => {
   if (markerType === 'star') {
-    for (let i = from; i < text.length; i++) {
-      if (text.charCodeAt(i) !== STAR_CHAR_CODE) continue
+    let i = text.indexOf('★', from)
+    while (i !== -1) {
       if (!isEscapedAt(i)) return i
+      i = text.indexOf('★', i + 1)
     }
     return -1
   }
-  for (let i = from; i + 1 < text.length; i++) {
-    if (text.charCodeAt(i) !== PERCENT_CHAR_CODE || text.charCodeAt(i + 1) !== PERCENT_CHAR_CODE) continue
+  let i = text.indexOf('%%', from)
+  while (i !== -1) {
     if (!isEscapedAt(i)) return i
+    i = text.indexOf('%%', i + 1)
   }
   return -1
 }
@@ -326,21 +347,8 @@ const shouldFullAnalyze = (changeCount, totalLines, option) => {
   const total = Math.max(0, Math.trunc(Number(totalLines) || 0))
   if (!changed || !total) return false
 
-  const thresholdLines = (() => {
-    const raw = cfg.thresholdLines
-    if (raw == null) return DEFAULT_FULL_ANALYZE_THRESHOLD_LINES
-    const num = Number(raw)
-    if (!Number.isFinite(num)) return DEFAULT_FULL_ANALYZE_THRESHOLD_LINES
-    const int = Math.trunc(num)
-    return int > 0 ? int : DEFAULT_FULL_ANALYZE_THRESHOLD_LINES
-  })()
-  const thresholdRatio = (() => {
-    const raw = cfg.thresholdRatio
-    if (raw == null) return DEFAULT_FULL_ANALYZE_THRESHOLD_RATIO
-    const num = Number(raw)
-    if (!Number.isFinite(num)) return DEFAULT_FULL_ANALYZE_THRESHOLD_RATIO
-    return num > 0 ? num : DEFAULT_FULL_ANALYZE_THRESHOLD_RATIO
-  })()
+  const thresholdLines = resolvePositiveInt(cfg.thresholdLines, DEFAULT_FULL_ANALYZE_THRESHOLD_LINES)
+  const thresholdRatio = resolvePositiveNumber(cfg.thresholdRatio, DEFAULT_FULL_ANALYZE_THRESHOLD_RATIO)
 
   if (changed >= thresholdLines) return true
   return (changed / total) >= thresholdRatio
@@ -351,6 +359,9 @@ const analyzeLines = (lines, runtime, prevState = null) => {
   const srcLines = Array.isArray(lines) ? lines.map(toText) : []
   const lineCount = srcLines.length
   if (!lineCount) return createEmptyAnalyzeResult(activeRuntime.inlineProfileMask)
+  if (!activeRuntime.anyEnabled) {
+    return createDisabledAnalyzeLines(srcLines, activeRuntime.inlineProfileMask)
+  }
   const cacheLimit = DEFAULT_CACHE_SIZE_LIMIT
   const prevCache = prevState
     && prevState.inlineProfileMask === activeRuntime.inlineProfileMask
@@ -359,7 +370,7 @@ const analyzeLines = (lines, runtime, prevState = null) => {
     : null
   const lineCache = prevCache ? new Map(prevCache) : new Map()
   const results = new Array(lineCount)
-  const paragraphTypes = new Array(lineCount).fill(null)
+  const paragraphTypes = new Array(lineCount)
   const blankFlags = new Array(lineCount)
   let cacheHits = 0
 
@@ -397,7 +408,7 @@ const analyzeLines = (lines, runtime, prevState = null) => {
       text: line,
       inlineRanges: base.inlineRanges,
       lineModeRange: base.lineModeRange,
-      paragraphType: paragraphTypes[i],
+      paragraphType: paragraphTypes[i] || null,
     }
   }
 
@@ -429,6 +440,9 @@ const analyzeLineWindow = (lines, runtime, fromLine, toLine, prevState = null, o
   const contextLines = clampInt(option && option.contextLines, 0, lineCount, 0)
   const from = Math.max(0, expandedWindow.fromLine - contextLines)
   const to = Math.min(lineCount, expandedWindow.toLine + contextLines)
+  if (!activeRuntime.anyEnabled) {
+    return createDisabledAnalyzeLines(srcLines, activeRuntime.inlineProfileMask, from, to)
+  }
 
   const cacheLimit = resolveCacheLimit(option)
   const prevCache = prevState
@@ -437,9 +451,9 @@ const analyzeLineWindow = (lines, runtime, fromLine, toLine, prevState = null, o
     ? prevState.lineCache
     : null
   const lineCache = prevCache ? new Map(prevCache) : new Map()
-  const results = []
   const windowLength = Math.max(0, to - from)
-  const paragraphTypes = new Array(windowLength).fill(null)
+  const results = new Array(windowLength)
+  const paragraphTypes = new Array(windowLength)
   const windowLines = new Array(windowLength)
   const blankFlags = new Array(windowLength)
   let cacheHits = 0
@@ -474,13 +488,13 @@ const analyzeLineWindow = (lines, runtime, fromLine, toLine, prevState = null, o
       base = analyzeLineFast(line, activeRuntime)
     }
     setCacheEntry(lineCache, key, base, cacheLimit)
-    results.push({
+    results[i - from] = {
       index: i,
       text: line,
       inlineRanges: base.inlineRanges,
       lineModeRange: base.lineModeRange,
-      paragraphType: paragraphTypes[i - from],
-    })
+      paragraphType: paragraphTypes[i - from] || null,
+    }
   }
 
   return {

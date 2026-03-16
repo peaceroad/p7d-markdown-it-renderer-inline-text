@@ -103,6 +103,17 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
 
   {
     const runtime = createRuntimePlan({
+      percentComment: true,
+    })
+    const ranges = scanInlineRanges('%%a\\%%%b%%', runtime)
+    assert.deepStrictEqual(
+      ranges.map((r) => [r.type, r.start, r.end, r.text]),
+      [['percent', 0, 7, '%%a\\%%%']],
+    )
+  }
+
+  {
+    const runtime = createRuntimePlan({
       ruby: true,
       starComment: false,
       percentComment: true,
@@ -190,6 +201,25 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
   }
 
   {
+    const runtime = createRuntimePlan({})
+    const analyzed = analyzeLines(['前★注記★後', '  %%line'], runtime)
+    assert.deepStrictEqual(
+      analyzed.lines.map((line) => ({
+        index: line.index,
+        text: line.text,
+        inlineRanges: line.inlineRanges,
+        lineModeRange: line.lineModeRange,
+        paragraphType: line.paragraphType,
+      })),
+      [
+        { index: 0, text: '前★注記★後', inlineRanges: [], lineModeRange: null, paragraphType: null },
+        { index: 1, text: '  %%line', inlineRanges: [], lineModeRange: null, paragraphType: null },
+      ],
+    )
+    assert.strictEqual(analyzed.stats.analyzedCount, 2)
+  }
+
+  {
     assert.deepStrictEqual(normalizeLineWindow(10, 3, 7), { fromLine: 3, toLine: 7 })
     assert.deepStrictEqual(normalizeLineWindow(10, -2, 20), { fromLine: 0, toLine: 10 })
     assert.deepStrictEqual(normalizeLineWindow(0, 1, 2), { fromLine: 0, toLine: 0 })
@@ -243,6 +273,30 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
 
     const window2 = analyzeLineWindow(lines, runtime, 2, 3, window.state)
     assert.ok(window2.stats.cacheHits >= 2)
+  }
+
+  {
+    const runtime = createRuntimePlan({})
+    const lines = ['前★注記★後', '', '%%line']
+    const window = analyzeLineWindow(lines, runtime, 1, 2)
+    assert.deepStrictEqual(
+      window.lines.map((line) => ({
+        index: line.index,
+        text: line.text,
+        inlineRanges: line.inlineRanges,
+        lineModeRange: line.lineModeRange,
+        paragraphType: line.paragraphType,
+      })),
+      [
+        { index: 0, text: '前★注記★後', inlineRanges: [], lineModeRange: null, paragraphType: null },
+        { index: 1, text: '', inlineRanges: [], lineModeRange: null, paragraphType: null },
+        { index: 2, text: '%%line', inlineRanges: [], lineModeRange: null, paragraphType: null },
+      ],
+    )
+    assert.deepStrictEqual(
+      [window.stats.analyzedFrom, window.stats.analyzedTo, window.stats.analyzedCount],
+      [0, 3, 3],
+    )
   }
 
   // Parity check in guaranteed scope: plain inline marker text (no markdown syntax intersections).

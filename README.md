@@ -306,7 +306,7 @@ Output:
 - The plugin runs as a core rule and may rewrite `text` tokens to `html_inline`.
 - If another plugin expects raw `text` only, run that plugin earlier or support `html_inline`.
 - Designed to coexist with `text_join` / `cjk_breaks` by forcing conversion at the tail of core processing.
-- Reusing `.use(plugin, options)` on the same markdown-it instance updates active options.
+- Install this plugin once per `markdown-it` instance. Use a fresh instance for a different option set.
 
 ## Install
 

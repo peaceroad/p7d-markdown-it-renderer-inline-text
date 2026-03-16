@@ -6,8 +6,12 @@ export const PERCENT_MARKER = PERCENT_CHAR + PERCENT_CHAR
 export const RUBY_MARK_CHAR = '《'
 export const DEFAULT_STAR_CLASS = 'star-comment'
 export const DEFAULT_PERCENT_CLASS = 'percent-comment'
+const RUBY_BASE_CONTENT = '[\\p{sc=Han}0-9A-Za-z.\\-_]+'
+const RUBY_BASE_FALLBACK_CONTENT = '[\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF0-9A-Za-z.\\-_]+'
+const RUBY_REGEXP_CONTENT = '(?:<ruby>(' + RUBY_BASE_CONTENT + ')《([^》]+?)》<\\/ruby>|(' + RUBY_BASE_CONTENT + ')《([^》]+?)》)'
+const RUBY_REGEXP_FALLBACK_CONTENT = '(?:<ruby>(' + RUBY_BASE_FALLBACK_CONTENT + ')《([^》]+?)》<\\/ruby>|(' + RUBY_BASE_FALLBACK_CONTENT + ')《([^》]+?)》)'
 
-const toText = (value) => {
+export const toText = (value) => {
   if (typeof value === 'string') return value
   if (value == null) return ''
   return String(value)
@@ -29,7 +33,7 @@ export const normalizeParagraphClass = (value, fallbackClass) => {
   return ''
 }
 
-const countBackslashesBefore = (text, index) => {
+export const countBackslashesBefore = (text, index) => {
   if (!text || index <= 0) return 0
   let backslashCount = 0
   let cursor = index - 1
@@ -38,6 +42,31 @@ const countBackslashesBefore = (text, index) => {
     cursor--
   }
   return backslashCount
+}
+
+export const createBackslashLookup = (text) => {
+  if (!text || text.indexOf('\\') === -1) return null
+  const run = text.length > 0xFFFF
+    ? new Uint32Array(text.length + 1)
+    : new Uint16Array(text.length + 1)
+  let streak = 0
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) === 92) {
+      streak++
+    } else {
+      streak = 0
+    }
+    run[i + 1] = streak
+  }
+  return (idx) => run[idx]
+}
+
+export const createRubyRegExp = () => {
+  try {
+    return new RegExp(RUBY_REGEXP_CONTENT, 'ugi')
+  } catch (err) {
+    return new RegExp(RUBY_REGEXP_FALLBACK_CONTENT, 'gi')
+  }
 }
 
 export const isEscapedStar = (text, index) => {
@@ -49,7 +78,7 @@ export const isEscapedPercent = (text, index) => {
   return isEscapedStar(text, index)
 }
 
-const trimLineStartIndex = (line) => {
+export const trimLineStartIndex = (line) => {
   let idx = 0
   while (idx < line.length && (line[idx] === ' ' || line[idx] === '\t')) idx++
   return idx

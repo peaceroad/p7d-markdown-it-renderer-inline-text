@@ -8,6 +8,9 @@ import {
   DEFAULT_PERCENT_CLASS,
   RUBY_MARK_CHAR,
   normalizeOptions as normalizeSharedOptions,
+  countBackslashesBefore,
+  createBackslashLookup,
+  createRubyRegExp,
   lineStartsWithStar as sharedLineStartsWithStar,
   lineStartsWithPercent as sharedLineStartsWithPercent,
   createRuntimePlan as createSharedRuntimePlan,
@@ -22,6 +25,10 @@ const ESCAPED_PERCENT_SENTINEL = '\uFDD2'
 const ACTIVE_PERCENT_SENTINEL = '\uFDD3'
 const RAW_HTML_LT_SENTINEL = '\uFDD4'
 const RAW_HTML_GT_SENTINEL = '\uFDD5'
+const MASKED_RUBY_OPEN_TOKEN = (RAW_HTML_LT_SENTINEL + 'ruby' + RAW_HTML_GT_SENTINEL).toLowerCase()
+const MASKED_RUBY_CLOSE_TOKEN = (RAW_HTML_LT_SENTINEL + '/ruby' + RAW_HTML_GT_SENTINEL).toLowerCase()
+const MASKED_RUBY_OPEN_TOKEN_LEN = MASKED_RUBY_OPEN_TOKEN.length
+const MASKED_RUBY_CLOSE_TOKEN_LEN = MASKED_RUBY_CLOSE_TOKEN.length
 const PERCENT_COMMENT_LINE_META_KEY = 'percentCommentLineDelete'
 const INLINE_HTML_TAG_REGEXP = /^<\s*(\/)?\s*([A-Za-z][\w:-]*)/i
 const INLINE_HTML_SELF_CLOSE_REGEXP = /\/>\s*$/
@@ -30,10 +37,6 @@ const INLINE_HTML_VOID_TAGS = new Set([
   'meta', 'param', 'source', 'track', 'wbr',
 ])
 const INLINE_HTML_RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'title'])
-const RUBY_BASE_CONTENT = '[\\p{sc=Han}0-9A-Za-z.\\-_]+'
-const RUBY_BASE_FALLBACK_CONTENT = '[\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF0-9A-Za-z.\\-_]+'
-const RUBY_REGEXP_CONTENT = '(?:<ruby>(' + RUBY_BASE_CONTENT + ')《([^》]+?)》<\\/ruby>|(' + RUBY_BASE_CONTENT + ')《([^》]+?)》)'
-const RUBY_REGEXP_FALLBACK_CONTENT = '(?:<ruby>(' + RUBY_BASE_FALLBACK_CONTENT + ')《([^》]+?)》<\\/ruby>|(' + RUBY_BASE_FALLBACK_CONTENT + ')《([^》]+?)》)'
 const INLINE_RUBY_OPEN_TAG_REGEXP = /^<\s*ruby\s*>$/i
 const INLINE_RUBY_CLOSE_TAG_REGEXP = /^<\s*\/\s*ruby\s*>$/i
 const HTML_AMP_REGEXP = /&/g
@@ -55,14 +58,6 @@ const HTML_GT_NONTAG_REGEXP = (() => {
     return null
   }
 })()
-
-const createRubyRegExp = () => {
-  try {
-    return new RegExp(RUBY_REGEXP_CONTENT, 'ugi')
-  } catch (err) {
-    return new RegExp(RUBY_REGEXP_FALLBACK_CONTENT, 'gi')
-  }
-}
 
 const RUBY_REGEXP = createRubyRegExp()
 
@@ -132,10 +127,6 @@ const restoreRawHtmlAngles = (value) => {
 const restoreMaskedRubyTags = (value) => {
   if (!value) return value
   if (value.indexOf(RAW_HTML_LT_SENTINEL) === -1) return value
-  const openToken = (RAW_HTML_LT_SENTINEL + 'ruby' + RAW_HTML_GT_SENTINEL).toLowerCase()
-  const closeToken = (RAW_HTML_LT_SENTINEL + '/ruby' + RAW_HTML_GT_SENTINEL).toLowerCase()
-  const openLen = openToken.length
-  const closeLen = closeToken.length
   const matchesTokenAt = (pos, token, len) => {
     if (pos < 0 || pos + len > value.length) return false
     return value.slice(pos, pos + len).toLowerCase() === token
@@ -152,23 +143,23 @@ const restoreMaskedRubyTags = (value) => {
   let out = ''
   let i = 0
   while (i < value.length) {
-    const openPos = findToken(i, openToken, openLen)
+    const openPos = findToken(i, MASKED_RUBY_OPEN_TOKEN, MASKED_RUBY_OPEN_TOKEN_LEN)
     if (openPos === -1) {
       out += value.slice(i)
       break
     }
     out += value.slice(i, openPos)
-    const contentStart = openPos + openLen
+    const contentStart = openPos + MASKED_RUBY_OPEN_TOKEN_LEN
 
     // Restore only full <ruby>...</ruby> pairs.
-    const closePos = findToken(contentStart, closeToken, closeLen)
+    const closePos = findToken(contentStart, MASKED_RUBY_CLOSE_TOKEN, MASKED_RUBY_CLOSE_TOKEN_LEN)
     if (closePos === -1) {
       out += value.slice(openPos)
       break
     }
 
     out += '<ruby>' + value.slice(contentStart, closePos) + '</ruby>'
-    i = closePos + closeLen
+    i = closePos + MASKED_RUBY_CLOSE_TOKEN_LEN
   }
   return out
 }
@@ -395,6 +386,20 @@ const ensureInlineHtmlContext = (tokens) => {
   }
 }
 
+const hasInlineHtmlTokens = (tokens) => {
+  if (!tokens) return false
+  if (tokens.__hasInlineHtmlTokens !== undefined) return tokens.__hasInlineHtmlTokens
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+    if (token && token.type === 'html_inline') {
+      tokens.__hasInlineHtmlTokens = true
+      return true
+    }
+  }
+  tokens.__hasInlineHtmlTokens = false
+  return false
+}
+
 const hideInlineTokensAfter = (tokens, startIdx, metaKey = '__starCommentDelete') => {
   let pointer = startIdx
   while (pointer < tokens.length) {
@@ -412,34 +417,6 @@ const hideInlineTokensAfter = (tokens, startIdx, metaKey = '__starCommentDelete'
     }
     pointer++
   }
-}
-
-const countBackslashesBefore = (text, index) => {
-  if (!text || index <= 0) return 0
-  let backslashCount = 0
-  let cursor = index - 1
-  while (cursor >= 0 && text.charCodeAt(cursor) === 92) {
-    backslashCount++
-    cursor--
-  }
-  return backslashCount
-}
-
-const createBackslashLookup = (text) => {
-  if (!text || text.indexOf('\\') === -1) return null
-  const run = text.length > 0xFFFF
-    ? new Uint32Array(text.length + 1)
-    : new Uint16Array(text.length + 1)
-  let streak = 0
-  for (let i = 0; i < text.length; i++) {
-    if (text.charCodeAt(i) === 92) {
-      streak++
-    } else {
-      streak = 0
-    }
-    run[i + 1] = streak
-  }
-  return (idx) => run[idx]
 }
 
 const getBackslashCountBefore = (text, index, meta) => {
@@ -583,7 +560,7 @@ const collapseMarkerEscapes = (value, marker) => {
 }
 
 const applyEscapeMetaInlineRule = (state, silent) => {
-  if (!state || !state.md || !state.md.__escapeMetaEnabled) return false
+  if (!state) return false
   const start = state.pos
   const src = state.src
   const max = state.posMax
@@ -628,17 +605,27 @@ const isEscapedSourceMarker = (src, index, getEscapesBefore = null) => {
 }
 
 const findInlineStarCommentClose = (src, from, max, getEscapesBefore = null, hasSourceBackslash = true) => {
-  for (let i = from; i < max; i++) {
-    if (src.charCodeAt(i) !== STAR_CHAR_CODE) continue
-    if (!hasSourceBackslash || !isEscapedSourceMarker(src, i, getEscapesBefore)) return i
+  if (!hasSourceBackslash) {
+    const idx = src.indexOf(STAR_CHAR, from)
+    return idx !== -1 && idx < max ? idx : -1
+  }
+  let i = src.indexOf(STAR_CHAR, from)
+  while (i !== -1 && i < max) {
+    if (!isEscapedSourceMarker(src, i, getEscapesBefore)) return i
+    i = src.indexOf(STAR_CHAR, i + 1)
   }
   return -1
 }
 
 const findInlinePercentCommentClose = (src, from, max, getEscapesBefore = null, hasSourceBackslash = true) => {
-  for (let i = from; i + 1 < max; i++) {
-    if (src.charCodeAt(i) !== PERCENT_CHAR_CODE || src.charCodeAt(i + 1) !== PERCENT_CHAR_CODE) continue
-    if (!hasSourceBackslash || !isEscapedSourceMarker(src, i, getEscapesBefore)) return i
+  if (!hasSourceBackslash) {
+    const idx = src.indexOf(PERCENT_MARKER, from)
+    return idx !== -1 && idx + 1 < max ? idx : -1
+  }
+  let i = src.indexOf(PERCENT_MARKER, from)
+  while (i !== -1 && i + 1 < max) {
+    if (!isEscapedSourceMarker(src, i, getEscapesBefore)) return i
+    i = src.indexOf(PERCENT_MARKER, i + 1)
   }
   return -1
 }
@@ -694,11 +681,11 @@ const ensureSourceBackslashLookup = (state, src) => {
   return lookup
 }
 
-const createCommentPreparseInlineRule = (md) => {
+const createCommentPreparseInlineRule = (runtime, preparseProfile) => {
+  const starDeleteMode = !!preparseProfile.starDeleteMode
+  const percentDeleteMode = !!preparseProfile.percentDeleteMode
+  const percentClass = preparseProfile.percentClass || DEFAULT_PERCENT_CLASS
   return (state, silent) => {
-    const opt = md && md.__rendererInlineTextOptions
-    const runtime = md && md.__rendererInlineTextRuntime
-    if (!opt || !runtime) return false
     const htmlEnabled = !!(state && state.md && state.md.options && state.md.options.html)
 
     let starInlineMode = runtime.starInlineEnabled
@@ -764,15 +751,14 @@ const createCommentPreparseInlineRule = (md) => {
 
     const end = markerType === 1 ? closePos + 1 : closePos + 2
     const rawSegment = src.slice(start, end)
-    const deleteMode = markerType === 1 ? !!opt.starCommentDelete : !!opt.percentCommentDelete
+    const deleteMode = markerType === 1 ? starDeleteMode : percentDeleteMode
     if (!deleteMode) {
       const token = state.push('html_inline', '', 0)
       const segment = htmlEnabled ? rawSegment : escapeTextContent(rawSegment)
       if (markerType === 1) {
         token.content = '<span class="star-comment">' + segment + '</span>'
       } else {
-        const cls = opt.percentClassEscaped || DEFAULT_PERCENT_CLASS
-        token.content = '<span class="' + cls + '">' + segment + '</span>'
+        token.content = '<span class="' + percentClass + '">' + segment + '</span>'
       }
     }
 
@@ -815,48 +801,37 @@ const isPercentCommentParagraph = (inlineTokens) => {
 const lineStartsWithStar = sharedLineStartsWithStar
 const lineStartsWithPercent = sharedLineStartsWithPercent
 
-const getStarCommentLineCache = (md, src) => {
-  const cache = md.__starCommentLineCache
+const getCommentLineCache = (state) => {
+  if (!state || !state.src) return null
+  const cache = state.__commentLineCache
+  const src = state.src
   if (cache && cache.src === src) return cache
   const lines = src.split(/\r?\n/)
   const nextCache = {
     src,
     lines,
     starFlags: new Array(lines.length),
-    trimmedLines: new Array(lines.length),
-  }
-  md.__starCommentLineCache = nextCache
-  return nextCache
-}
-
-const getPercentCommentLineCache = (md, src) => {
-  const cache = md.__percentCommentLineCache
-  if (cache && cache.src === src) return cache
-  const lines = src.split(/\r?\n/)
-  const nextCache = {
-    src,
-    lines,
     percentFlags: new Array(lines.length),
     trimmedLines: new Array(lines.length),
   }
-  md.__percentCommentLineCache = nextCache
+  state.__commentLineCache = nextCache
   return nextCache
 }
 
-const getCachedStarLineFlag = (cache, idx) => {
-  let flag = cache.starFlags[idx]
+const getCachedLineFlag = (flags, lines, idx, detector) => {
+  let flag = flags[idx]
   if (flag !== undefined) return flag
-  flag = lineStartsWithStar(cache.lines[idx] || '')
-  cache.starFlags[idx] = flag
+  flag = detector(lines[idx] || '')
+  flags[idx] = flag
   return flag
 }
 
+const getCachedStarLineFlag = (cache, idx) => {
+  return getCachedLineFlag(cache.starFlags, cache.lines, idx, lineStartsWithStar)
+}
+
 const getCachedPercentLineFlag = (cache, idx) => {
-  let flag = cache.percentFlags[idx]
-  if (flag !== undefined) return flag
-  flag = lineStartsWithPercent(cache.lines[idx] || '')
-  cache.percentFlags[idx] = flag
-  return flag
+  return getCachedLineFlag(cache.percentFlags, cache.lines, idx, lineStartsWithPercent)
 }
 
 const getCachedTrimmedLine = (cache, idx) => {
@@ -865,6 +840,29 @@ const getCachedTrimmedLine = (cache, idx) => {
   trimmed = (cache.lines[idx] || '').trim()
   cache.trimmedLines[idx] = trimmed
   return trimmed
+}
+
+const collectIgnoredCommentLines = (tokens) => {
+  let ignoredLines = null
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+    if (!isIgnoredCommentLineToken(token)) continue
+    if (!ignoredLines) ignoredLines = new Set()
+    for (let line = token.map[0]; line < token.map[1]; line++) {
+      ignoredLines.add(line)
+    }
+  }
+  return ignoredLines
+}
+
+const getIgnoredCommentLines = (state) => {
+  if (!state) return null
+  if (state.__commentLineIgnoredLines !== undefined) {
+    return state.__commentLineIgnoredLines
+  }
+  const ignoredLines = collectIgnoredCommentLines(state.tokens || [])
+  state.__commentLineIgnoredLines = ignoredLines
+  return ignoredLines
 }
 
 const hideTokenRange = (tokens, start, end) => {
@@ -899,7 +897,7 @@ const findListItemBounds = (tokens, inlineIdx) => {
   return null
 }
 
-const isIgnoredStarLineToken = (token) => {
+const isIgnoredCommentLineToken = (token) => {
   if (!token || !token.block || !token.map) return false
   if (token.type === 'code_block' || token.type === 'fence') return true
   if (token.tag && (token.tag === 'code' || token.tag === 'math')) return true
@@ -947,7 +945,7 @@ const suppressTokenOutput = (token) => {
   }
 }
 
-const annotateStarLine = (tokens, start, end, breakIdx, opt) => {
+const annotateStarLine = (tokens, start, end, breakIdx, deleteMode) => {
   if (start >= end) return
   const firstToken = tokens[start]
   if (!firstToken || firstToken.type !== 'text') return
@@ -974,7 +972,7 @@ const annotateStarLine = (tokens, start, end, breakIdx, opt) => {
   endToken.meta = endToken.meta || {}
   endToken.meta.__starLineGlobalEnd = true
 
-  if (opt.starCommentDelete) {
+  if (deleteMode) {
     for (let i = start; i < end; i++) {
       suppressTokenOutput(tokens[i])
     }
@@ -987,7 +985,7 @@ const annotateStarLine = (tokens, start, end, breakIdx, opt) => {
   }
 }
 
-const annotatePercentLine = (tokens, start, end, breakIdx, opt) => {
+const annotatePercentLine = (tokens, start, end, breakIdx, deleteMode) => {
   if (start >= end) return
   const firstToken = tokens[start]
   if (!firstToken || firstToken.type !== 'text') return
@@ -1023,7 +1021,6 @@ const annotatePercentLine = (tokens, start, end, breakIdx, opt) => {
   endToken.meta = endToken.meta || {}
   endToken.meta.__percentLineGlobalEnd = true
 
-  const deleteMode = opt.percentCommentDelete
   if (deleteMode) {
     for (let i = start; i < end; i++) {
       suppressTokenOutput(tokens[i])
@@ -1037,11 +1034,11 @@ const annotatePercentLine = (tokens, start, end, breakIdx, opt) => {
   }
 }
 
-const markStarCommentLineGlobal = (tokens, opt) => {
-  if (tokens.__starCommentLineGlobalProcessed) return
-  tokens.__starCommentLineGlobalProcessed = true
-  const ignoredLines = tokens.__starCommentLineIgnoredLines
-  const baseLine = tokens.__starCommentLineBaseLine
+const markCommentLineGlobal = (tokens, deleteMode, processedKey, ignoredKey, baseLineKey, annotateLine) => {
+  if (tokens[processedKey]) return
+  tokens[processedKey] = true
+  const ignoredLines = tokens[ignoredKey]
+  const baseLine = tokens[baseLineKey]
   let absoluteLine = typeof baseLine === 'number' ? baseLine : null
   const trackLines = !!ignoredLines && absoluteLine !== null
 
@@ -1054,7 +1051,7 @@ const markStarCommentLineGlobal = (tokens, opt) => {
     const shouldSkip = trackLines && ignoredLines.has(absoluteLine)
     if (!shouldSkip) {
       const breakIdx = lineEnd < tokens.length ? lineEnd : -1
-      annotateStarLine(tokens, lineStart, lineEnd, breakIdx, opt)
+      annotateLine(tokens, lineStart, lineEnd, breakIdx, deleteMode)
     }
     lineStart = lineEnd < tokens.length ? lineEnd + 1 : tokens.length
     if (absoluteLine !== null) {
@@ -1063,60 +1060,53 @@ const markStarCommentLineGlobal = (tokens, opt) => {
   }
 }
 
-const markPercentCommentLineGlobal = (tokens, opt) => {
-  if (tokens.__percentCommentLineGlobalProcessed) return
-  tokens.__percentCommentLineGlobalProcessed = true
-  const ignoredLines = tokens.__percentCommentLineIgnoredLines
-  const baseLine = tokens.__percentCommentLineBaseLine
-  let absoluteLine = typeof baseLine === 'number' ? baseLine : null
-  const trackLines = !!ignoredLines && absoluteLine !== null
-
-  let lineStart = 0
-  while (lineStart < tokens.length) {
-    let lineEnd = lineStart
-    while (lineEnd < tokens.length && !isLineBreakToken(tokens[lineEnd])) {
-      lineEnd++
-    }
-    const shouldSkip = trackLines && ignoredLines.has(absoluteLine)
-    if (!shouldSkip) {
-      const breakIdx = lineEnd < tokens.length ? lineEnd : -1
-      annotatePercentLine(tokens, lineStart, lineEnd, breakIdx, opt)
-    }
-    lineStart = lineEnd < tokens.length ? lineEnd + 1 : tokens.length
-    if (absoluteLine !== null) {
-      absoluteLine++
-    }
-  }
+const markStarCommentLineGlobal = (tokens, deleteMode) => {
+  markCommentLineGlobal(
+    tokens,
+    deleteMode,
+    '__starCommentLineGlobalProcessed',
+    '__starCommentLineIgnoredLines',
+    '__starCommentLineBaseLine',
+    annotateStarLine,
+  )
 }
 
-const ensureStarCommentLineCore = (md) => {
-  if (md.__starCommentLineCoreReady) return
-  md.__starCommentLineCoreReady = true
+const markPercentCommentLineGlobal = (tokens, deleteMode) => {
+  markCommentLineGlobal(
+    tokens,
+    deleteMode,
+    '__percentCommentLineGlobalProcessed',
+    '__percentCommentLineIgnoredLines',
+    '__percentCommentLineBaseLine',
+    annotatePercentLine,
+  )
+}
 
-  safeCoreRule(md, 'star_comment_line_marker', (state) => {
-    if (!md.__starCommentLineGlobalEnabled) return
+const ensureCommentLineCore = (md, config) => {
+  const {
+    ruleId,
+    marker,
+    getLineFlag,
+    ignoredLinesKey,
+    baseLineKey,
+    metaKey,
+  } = config
+
+  safeCoreRule(md, ruleId, (state) => {
     if (!state.tokens || !state.tokens.length || !state.src) return
-    if (state.src.indexOf(STAR_CHAR) === -1) return
-    const cache = getStarCommentLineCache(md, state.src)
-    let ignoredLines = null
-    for (let i = 0; i < state.tokens.length; i++) {
-      const token = state.tokens[i]
-      if (!isIgnoredStarLineToken(token)) continue
-      if (!ignoredLines) ignoredLines = new Set()
-      for (let line = token.map[0]; line < token.map[1]; line++) {
-        ignoredLines.add(line)
-      }
-    }
+    if (state.src.indexOf(marker) === -1) return
+    const cache = getCommentLineCache(state)
+    const ignoredLines = getIgnoredCommentLines(state)
     for (let i = 0; i < state.tokens.length; i++) {
       const token = state.tokens[i]
       if (token.type !== 'inline' || !token.children || !token.children.length || !token.map) continue
-      token.children.__starCommentLineIgnoredLines = ignoredLines
-      token.children.__starCommentLineBaseLine = token.map[0]
+      token.children[ignoredLinesKey] = ignoredLines
+      token.children[baseLineKey] = token.map[0]
       const blockEnd = token.map[1]
       let lineIdx = token.map[0]
       while (lineIdx < blockEnd) {
         if (!ignoredLines || !ignoredLines.has(lineIdx)) {
-          if (getCachedStarLineFlag(cache, lineIdx)) {
+          if (getLineFlag(cache, lineIdx)) {
             let markLine = true
             let lookahead = lineIdx + 1
             while (lookahead < blockEnd) {
@@ -1129,7 +1119,7 @@ const ensureStarCommentLineCore = (md) => {
                 lookahead++
                 continue
               }
-              if (!getCachedStarLineFlag(cache, lookahead)) {
+              if (!getLineFlag(cache, lookahead)) {
                 markLine = false
                 break
               }
@@ -1137,7 +1127,7 @@ const ensureStarCommentLineCore = (md) => {
             }
             if (markLine) {
               token.meta = token.meta || {}
-              token.meta[STAR_COMMENT_LINE_META_KEY] = true
+              token.meta[metaKey] = true
             }
             break
           }
@@ -1149,86 +1139,33 @@ const ensureStarCommentLineCore = (md) => {
         lineIdx++
       }
     }
+  })
+}
 
-    if (md.__starCommentLineCache && md.__starCommentLineCache.src === state.src) {
-      md.__starCommentLineCache = null
-    }
+const ensureStarCommentLineCore = (md) => {
+  ensureCommentLineCore(md, {
+    ruleId: 'star_comment_line_marker',
+    marker: STAR_CHAR,
+    getLineFlag: getCachedStarLineFlag,
+    ignoredLinesKey: '__starCommentLineIgnoredLines',
+    baseLineKey: '__starCommentLineBaseLine',
+    metaKey: STAR_COMMENT_LINE_META_KEY,
   })
 }
 
 const ensurePercentCommentLineCore = (md) => {
-  if (md.__percentCommentLineCoreReady) return
-  md.__percentCommentLineCoreReady = true
-
-  safeCoreRule(md, 'percent_comment_line_marker', (state) => {
-    if (!md.__percentCommentLineGlobalEnabled) return
-    if (!state.tokens || !state.tokens.length || !state.src) return
-    if (state.src.indexOf(PERCENT_MARKER) === -1) return
-    const cache = getPercentCommentLineCache(md, state.src)
-    let ignoredLines = null
-    for (let i = 0; i < state.tokens.length; i++) {
-      const token = state.tokens[i]
-      if (!isIgnoredStarLineToken(token)) continue
-      if (!ignoredLines) ignoredLines = new Set()
-      for (let line = token.map[0]; line < token.map[1]; line++) {
-        ignoredLines.add(line)
-      }
-    }
-    for (let i = 0; i < state.tokens.length; i++) {
-      const token = state.tokens[i]
-      if (token.type !== 'inline' || !token.children || !token.children.length || !token.map) continue
-      token.children.__percentCommentLineIgnoredLines = ignoredLines
-      token.children.__percentCommentLineBaseLine = token.map[0]
-      const blockEnd = token.map[1]
-      let lineIdx = token.map[0]
-      while (lineIdx < blockEnd) {
-        if (!ignoredLines || !ignoredLines.has(lineIdx)) {
-          if (getCachedPercentLineFlag(cache, lineIdx)) {
-            let markLine = true
-            let lookahead = lineIdx + 1
-            while (lookahead < blockEnd) {
-              if (ignoredLines && ignoredLines.has(lookahead)) {
-                lookahead++
-                continue
-              }
-              const trimmed = getCachedTrimmedLine(cache, lookahead)
-              if (trimmed === '') {
-                lookahead++
-                continue
-              }
-              if (!getCachedPercentLineFlag(cache, lookahead)) {
-                markLine = false
-                break
-              }
-              lookahead++
-            }
-            if (markLine) {
-              token.meta = token.meta || {}
-              token.meta[PERCENT_COMMENT_LINE_META_KEY] = true
-            }
-            break
-          }
-          const trimmedLine = getCachedTrimmedLine(cache, lineIdx)
-          if (trimmedLine !== '') {
-            break
-          }
-        }
-        lineIdx++
-      }
-    }
-
-    if (md.__percentCommentLineCache && md.__percentCommentLineCache.src === state.src) {
-      md.__percentCommentLineCache = null
-    }
+  ensureCommentLineCore(md, {
+    ruleId: 'percent_comment_line_marker',
+    marker: PERCENT_MARKER,
+    getLineFlag: getCachedPercentLineFlag,
+    ignoredLinesKey: '__percentCommentLineIgnoredLines',
+    baseLineKey: '__percentCommentLineBaseLine',
+    metaKey: PERCENT_COMMENT_LINE_META_KEY,
   })
 }
 
 const ensureStarCommentParagraphDeleteCore = (md) => {
-  if (md.__starCommentParagraphDeleteCoreReady) return
-  md.__starCommentParagraphDeleteCoreReady = true
-
   safeCoreRule(md, 'star_comment_paragraph_delete', (state) => {
-    if (!md.__starCommentParagraphDeleteEnabled) return
     const tokens = state.tokens
     if (!tokens || !tokens.length) return
     for (let i = 0; i < tokens.length; i++) {
@@ -1246,11 +1183,7 @@ const ensureStarCommentParagraphDeleteCore = (md) => {
 }
 
 const ensurePercentCommentParagraphDeleteCore = (md) => {
-  if (md.__percentCommentParagraphDeleteCoreReady) return
-  md.__percentCommentParagraphDeleteCoreReady = true
-
   safeCoreRule(md, 'percent_comment_paragraph_delete', (state) => {
-    if (!md.__percentCommentParagraphDeleteEnabled) return
     const tokens = state.tokens
     if (!tokens || !tokens.length) return
     for (let i = 0; i < tokens.length; i++) {
@@ -1310,34 +1243,30 @@ const addTokenClass = (token, className) => {
   attrs.push(['class', className])
 }
 
-const applyParagraphCommentClasses = (md, tokens, idx) => {
-  if (!md.__starCommentParagraphClass && !md.__percentCommentParagraphClass) {
+const applyParagraphCommentClasses = (starParagraphClass, percentParagraphClass, tokens, idx) => {
+  if (!starParagraphClass && !percentParagraphClass) {
     return
   }
   const inlineToken = tokens[idx + 1]
   if (!inlineToken || inlineToken.type !== 'inline' || !inlineToken.children || !inlineToken.children.length) {
     return
   }
-  if (md.__starCommentParagraphClass && isStarCommentParagraph(inlineToken.children)) {
-    addTokenClass(tokens[idx], md.__starCommentParagraphClass)
+  if (starParagraphClass && isStarCommentParagraph(inlineToken.children)) {
+    addTokenClass(tokens[idx], starParagraphClass)
   }
-  if (md.__percentCommentParagraphClass && isPercentCommentParagraph(inlineToken.children)) {
-    addTokenClass(tokens[idx], md.__percentCommentParagraphClass)
+  if (percentParagraphClass && isPercentCommentParagraph(inlineToken.children)) {
+    addTokenClass(tokens[idx], percentParagraphClass)
   }
 }
 
-const ensureParagraphWrapperCore = (md) => {
-  if (md.__paragraphWrapperCoreReady) return
-  md.__paragraphWrapperCoreReady = true
-
+const ensureParagraphWrapperCore = (md, starParagraphClass, percentParagraphClass) => {
+  const needsClass = !!(starParagraphClass || percentParagraphClass)
   safeCoreRule(md, 'paragraph_wrapper_adjust', (state) => {
-    if (!md.__paragraphWrapperAdjustEnabled) return
     const tokens = state.tokens
     if (!tokens || !tokens.length) return
     if (!state || !state.src || (state.src.indexOf(STAR_CHAR) === -1 && state.src.indexOf(PERCENT_MARKER) === -1)) {
       return
     }
-    const needsClass = !!(md.__starCommentParagraphClass || md.__percentCommentParagraphClass)
 
     for (let i = 0; i < tokens.length; i++) {
       const token = tokens[i]
@@ -1355,16 +1284,10 @@ const ensureParagraphWrapperCore = (md) => {
       }
 
       if (needsClass) {
-        applyParagraphCommentClasses(md, tokens, i)
+        applyParagraphCommentClasses(starParagraphClass, percentParagraphClass, tokens, i)
       }
     }
   })
-}
-
-const ensureParagraphDeleteSupport = (md) => {
-  if (md.__paragraphDeletePatched) return
-  md.__paragraphDeletePatched = true
-  ensureParagraphWrapperCore(md)
 }
 
 const escapeInlineHtml = (value, flags) => {
@@ -1461,11 +1384,9 @@ const convertRubyKnown = (cont, hasRubyWrapper) => {
   return replaced ? converted : cont
 }
 
-const convertPercentCommentInlineSegment = (segment, opt, token) => {
+const convertPercentCommentInlineSegment = (segment, deleteMode, percentClass, token) => {
   if (!segment || segment.indexOf(PERCENT_MARKER) === -1) return segment
-  const deleteMode = opt.percentCommentDelete
-  const cls = opt.percentClassEscaped || DEFAULT_PERCENT_CLASS
-  const openTag = deleteMode ? '' : '<span class="' + cls + '">'
+  const openTag = deleteMode ? '' : '<span class="' + percentClass + '">'
   const closeTag = '</span>'
   const meta = token && token.meta
   const forcedActive = meta && meta.__forceActivePercents
@@ -1570,9 +1491,8 @@ const convertPercentCommentInlineSegment = (segment, opt, token) => {
   return rebuilt
 }
 
-const convertStarCommentInlineSegment = (segment, opt, token) => {
+const convertStarCommentInlineSegment = (segment, deleteMode, token) => {
   if (!segment || segment.indexOf(STAR_CHAR) === -1) return segment
-  const deleteMode = opt.starCommentDelete
   const openTag = deleteMode ? '' : '<span class="star-comment">'
   const closeTag = '</span>'
   const meta = token && token.meta
@@ -1691,9 +1611,10 @@ const compileInlineTokenRunner = (profile) => {
   const percentParagraphEnabled = profile.percentParagraphEnabled
   const percentParagraphClassEnabled = profile.percentParagraphClassEnabled
   const percentDeleteEnabled = profile.percentDeleteEnabled
+  const percentClass = profile.percentClass || DEFAULT_PERCENT_CLASS
   const shouldNormalizeEscapes = starEnabled || percentEnabled
 
-  return (state, opt) => {
+  return (state) => {
     const tokens = state.tokens
     if (!tokens || !tokens.length) return
 
@@ -1713,7 +1634,13 @@ const compileInlineTokenRunner = (profile) => {
           if (!blockHasStar && token.content.indexOf(STAR_CHAR) !== -1) blockHasStar = true
           if (!blockHasPercent && token.content.indexOf(PERCENT_MARKER) !== -1) blockHasPercent = true
           if (!blockHasRuby && token.content.indexOf(RUBY_MARK_CHAR) !== -1) blockHasRuby = true
-          if (blockHasStar || blockHasPercent || blockHasRuby) break
+          if (
+            (!starEnabled || blockHasStar)
+            && (!percentEnabled || blockHasPercent)
+            && (!rubyEnabled || blockHasRuby)
+          ) {
+            break
+          }
         }
       }
       if (!blockHasStar && !blockHasPercent && !blockHasRuby) {
@@ -1737,17 +1664,16 @@ const compileInlineTokenRunner = (profile) => {
         continue
       }
 
-      if (htmlEnabled) {
+      if (htmlEnabled && hasInlineHtmlTokens(children)) {
         ensureInlineHtmlContext(children)
       }
       if (starLineEnabled && blockHasStar) {
-        markStarCommentLineGlobal(children, opt)
+        markStarCommentLineGlobal(children, starDeleteEnabled)
       }
       if (percentLineEnabled && blockHasPercent) {
-        markPercentCommentLineGlobal(children, opt)
+        markPercentCommentLineGlobal(children, percentDeleteEnabled)
       }
 
-      const percentClass = opt.percentClassEscaped || DEFAULT_PERCENT_CLASS
       const wrapStarParagraphInline = isStarParagraph && !starParagraphClassEnabled
       const wrapPercentParagraphInline = isPercentParagraph && !percentParagraphClassEnabled
       const paragraphWrapBounds = (wrapStarParagraphInline || wrapPercentParagraphInline)
@@ -1792,7 +1718,7 @@ const compileInlineTokenRunner = (profile) => {
           let forceHtmlInline = false
           let rawAnglesMasked = false
 
-          if (rawAnglesNeeded && !rawAnglesMasked) {
+          if (rawAnglesNeeded) {
             const masked = maskRawHtmlAngles(rebuilt)
             if (masked !== rebuilt) {
               rebuilt = masked
@@ -1822,14 +1748,14 @@ const compileInlineTokenRunner = (profile) => {
             }
           }
           if (hasStarMarker) {
-            const converted = convertStarCommentInlineSegment(rebuilt, opt, token)
+            const converted = convertStarCommentInlineSegment(rebuilt, starDeleteEnabled, token)
             if (converted !== rebuilt) {
               rebuilt = converted
               mutated = true
             }
           }
           if (hasPercentMarker) {
-            const converted = convertPercentCommentInlineSegment(rebuilt, opt, token)
+            const converted = convertPercentCommentInlineSegment(rebuilt, percentDeleteEnabled, percentClass, token)
             if (converted !== rebuilt) {
               rebuilt = converted
               mutated = true
@@ -1889,10 +1815,9 @@ const compileInlineTokenRunner = (profile) => {
   }
 }
 
-const getCompiledInlineTokenRunner = (md, runtime, htmlEnabled) => {
-  const cache = md.__inlineTokenRunnerCache || (md.__inlineTokenRunnerCache = [])
+const getCompiledInlineTokenRunner = (runnerCache, runtime, htmlEnabled, percentClass) => {
   const key = (runtime.inlineProfileMask << 1) | (htmlEnabled ? 1 : 0)
-  let runner = cache[key]
+  let runner = runnerCache[key]
   if (runner) return runner
   runner = compileInlineTokenRunner({
     htmlEnabled,
@@ -1907,19 +1832,17 @@ const getCompiledInlineTokenRunner = (md, runtime, htmlEnabled) => {
     percentParagraphEnabled: runtime.percentParagraphEnabled,
     percentParagraphClassEnabled: runtime.percentParagraphClassEnabled,
     percentDeleteEnabled: runtime.percentDeleteEnabled,
+    percentClass,
   })
-  cache[key] = runner
+  runnerCache[key] = runner
   return runner
 }
 
-const convertInlineTokens = (md) => {
+const convertInlineTokens = (runtime, runnerCache, percentClass) => {
   return (state) => {
-    const opt = md.__rendererInlineTextOptions
-    const runtime = md.__rendererInlineTextRuntime
-    if (!opt || !runtime || !runtime.anyEnabled) return
     const htmlEnabled = !!(state.md && state.md.options && state.md.options.html)
-    const runner = getCompiledInlineTokenRunner(md, runtime, htmlEnabled)
-    runner(state, opt)
+    const runner = getCompiledInlineTokenRunner(runnerCache, runtime, htmlEnabled, percentClass)
+    runner(state)
   }
 }
 
@@ -1935,10 +1858,9 @@ const normalizePluginOptions = (md, option = {}) => {
 }
 
 function rendererInlineText (md, option = {}) {
+  if (md.__rendererInlineTextInstalled) return
   const opt = normalizePluginOptions(md, option)
-  md.__rendererInlineTextOptions = opt
   const runtime = createRuntimePlan(opt)
-  md.__rendererInlineTextRuntime = runtime
   const rubyEnabled = runtime.rubyEnabled
   const starEnabled = runtime.starEnabled
   const starDeleteEnabled = runtime.starDeleteEnabled
@@ -1954,30 +1876,17 @@ function rendererInlineText (md, option = {}) {
   const percentParagraphClassEnabled = runtime.percentParagraphClassEnabled
   const anyEnabled = runtime.anyEnabled
   const markerEnabled = starEnabled || percentEnabled
+  const percentClass = opt.percentClassEscaped || DEFAULT_PERCENT_CLASS
   const needsParagraphSupport = !!(
     (starParagraphEnabled && starDeleteEnabled)
     || (starLineEnabled && starDeleteEnabled)
     || (percentParagraphEnabled && percentDeleteEnabled)
     || (percentLineEnabled && percentDeleteEnabled)
-    || starParagraphClassEnabled
-    || percentParagraphClassEnabled
-  )
-  md.__escapeMetaEnabled = markerEnabled
-  md.__starCommentLineGlobalEnabled = starLineEnabled
-  md.__starCommentParagraphDeleteEnabled = !!(starParagraphEnabled && starDeleteEnabled)
-  md.__percentCommentParagraphDeleteEnabled = !!(percentParagraphEnabled && percentDeleteEnabled)
-  md.__percentCommentLineGlobalEnabled = percentLineEnabled
-  md.__starCommentParagraphClass = starParagraphClass
-  md.__percentCommentParagraphClass = percentParagraphClass
-  md.__paragraphWrapperAdjustEnabled = !!(
-    starLineEnabled
-    || percentLineEnabled
-    || (starParagraphEnabled && starDeleteEnabled)
-    || (percentParagraphEnabled && percentDeleteEnabled)
-    || starParagraphClassEnabled
-    || percentParagraphClassEnabled
+     || starParagraphClassEnabled
+     || percentParagraphClassEnabled
   )
   if (!anyEnabled) return
+  md.__rendererInlineTextInstalled = true
 
   patchCoreRulerOrderGuard(md)
 
@@ -1988,7 +1897,7 @@ function rendererInlineText (md, option = {}) {
     ensurePercentCommentLineCore(md)
   }
   if (needsParagraphSupport) {
-    ensureParagraphDeleteSupport(md)
+    ensureParagraphWrapperCore(md, starParagraphClass, percentParagraphClass)
   }
   if (starParagraphEnabled && starDeleteEnabled) {
     ensureStarCommentParagraphDeleteCore(md)
@@ -1997,19 +1906,19 @@ function rendererInlineText (md, option = {}) {
     ensurePercentCommentParagraphDeleteCore(md)
   }
 
-  if (markerEnabled && !md.__escapeMetaReady) {
-    md.__escapeMetaReady = true
+  if (markerEnabled) {
     md.inline.ruler.before('escape', 'star_percent_escape_meta', applyEscapeMetaInlineRule)
   }
-  if (markerEnabled && !md.__commentPreparseReady) {
-    md.__commentPreparseReady = true
-    md.inline.ruler.before('text', 'star_percent_comment_preparse', createCommentPreparseInlineRule(md))
+  if (markerEnabled) {
+    md.inline.ruler.before('text', 'star_percent_comment_preparse', createCommentPreparseInlineRule(runtime, {
+      starDeleteMode: starDeleteEnabled,
+      percentDeleteMode: percentDeleteEnabled,
+      percentClass,
+    }))
   }
 
-  if (!md.__inlineRulerConvertReady) {
-    md.__inlineRulerConvertReady = true
-    safeCoreRule(md, 'inline_ruler_convert', convertInlineTokens(md))
-  }
+  const inlineTokenRunnerCache = []
+  safeCoreRule(md, 'inline_ruler_convert', convertInlineTokens(runtime, inlineTokenRunnerCache, percentClass))
 }
 
 export default rendererInlineText
