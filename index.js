@@ -372,6 +372,7 @@ const ensureInlineHtmlContext = (tokens) => {
     const token = tokens[i]
     if (!token) continue
     if (token.type === 'html_inline') {
+      if (token.meta && token.meta.__rendererInlineGenerated) continue
       const raw = token.content || ''
       if (!raw || raw[0] !== '<') continue
       if (!applyTagToStack(stack, raw)) {
@@ -388,15 +389,19 @@ const ensureInlineHtmlContext = (tokens) => {
 
 const hasInlineHtmlTokens = (tokens) => {
   if (!tokens) return false
-  if (tokens.__hasInlineHtmlTokens !== undefined) return tokens.__hasInlineHtmlTokens
+  if (tokens.__hasRawInlineHtmlTokens !== undefined) return tokens.__hasRawInlineHtmlTokens
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]
-    if (token && token.type === 'html_inline') {
-      tokens.__hasInlineHtmlTokens = true
+    if (
+      token
+      && token.type === 'html_inline'
+      && !(token.meta && token.meta.__rendererInlineGenerated)
+    ) {
+      tokens.__hasRawInlineHtmlTokens = true
       return true
     }
   }
-  tokens.__hasInlineHtmlTokens = false
+  tokens.__hasRawInlineHtmlTokens = false
   return false
 }
 
@@ -755,6 +760,8 @@ const createCommentPreparseInlineRule = (runtime, preparseProfile) => {
     if (!deleteMode) {
       const token = state.push('html_inline', '', 0)
       const segment = htmlEnabled ? rawSegment : escapeTextContent(rawSegment)
+      token.meta = token.meta || {}
+      token.meta.__rendererInlineGenerated = true
       if (markerType === 1) {
         token.content = '<span class="star-comment">' + segment + '</span>'
       } else {
@@ -801,12 +808,30 @@ const isPercentCommentParagraph = (inlineTokens) => {
 const lineStartsWithStar = sharedLineStartsWithStar
 const lineStartsWithPercent = sharedLineStartsWithPercent
 
+const getCoreSourceFlags = (state) => {
+  if (!state) {
+    return {
+      hasStar: false,
+      hasPercent: false,
+    }
+  }
+  if (state.__rendererInlineSourceFlags) return state.__rendererInlineSourceFlags
+  const src = typeof state.src === 'string' ? state.src : ''
+  const flags = {
+    hasStar: src.indexOf(STAR_CHAR) !== -1,
+    hasPercent: src.indexOf(PERCENT_MARKER) !== -1,
+  }
+  state.__rendererInlineSourceFlags = flags
+  return flags
+}
+
 const getCommentLineCache = (state) => {
   if (!state || !state.src) return null
   const cache = state.__commentLineCache
   const src = state.src
   if (cache && cache.src === src) return cache
-  const lines = src.split(/\r?\n/)
+  // markdown-it core normalize has already canonicalized line endings to LF.
+  const lines = src.split('\n')
   const nextCache = {
     src,
     lines,
@@ -1094,7 +1119,12 @@ const ensureCommentLineCore = (md, config) => {
 
   safeCoreRule(md, ruleId, (state) => {
     if (!state.tokens || !state.tokens.length || !state.src) return
-    if (state.src.indexOf(marker) === -1) return
+    const sourceFlags = getCoreSourceFlags(state)
+    if (marker === STAR_CHAR) {
+      if (!sourceFlags.hasStar) return
+    } else if (!sourceFlags.hasPercent) {
+      return
+    }
     const cache = getCommentLineCache(state)
     const ignoredLines = getIgnoredCommentLines(state)
     for (let i = 0; i < state.tokens.length; i++) {
@@ -1264,7 +1294,8 @@ const ensureParagraphWrapperCore = (md, starParagraphClass, percentParagraphClas
   safeCoreRule(md, 'paragraph_wrapper_adjust', (state) => {
     const tokens = state.tokens
     if (!tokens || !tokens.length) return
-    if (!state || !state.src || (state.src.indexOf(STAR_CHAR) === -1 && state.src.indexOf(PERCENT_MARKER) === -1)) {
+    const sourceFlags = getCoreSourceFlags(state)
+    if (!sourceFlags.hasStar && !sourceFlags.hasPercent) {
       return
     }
 
@@ -1804,6 +1835,8 @@ const compileInlineTokenRunner = (profile) => {
             token.type = 'html_inline'
             token.tag = ''
             token.nesting = 0
+            token.meta = token.meta || {}
+            token.meta.__rendererInlineGenerated = true
             token.content = rebuilt
           } else if (rebuilt !== token.content) {
             token.content = rebuilt

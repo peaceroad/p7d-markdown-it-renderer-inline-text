@@ -51,6 +51,17 @@ const resolveCacheLimit = (option) => {
   return resolvePositiveInt(option && option.cacheLimit, DEFAULT_CACHE_SIZE_LIMIT)
 }
 
+const getReusableLineCache = (prevState, inlineProfileMask) => {
+  if (
+    prevState
+    && prevState.inlineProfileMask === inlineProfileMask
+    && prevState.lineCache instanceof Map
+  ) {
+    return prevState.lineCache
+  }
+  return new Map()
+}
+
 const setCacheEntry = (lineCache, key, value, cacheLimit) => {
   lineCache.delete(key)
   lineCache.set(key, value)
@@ -363,12 +374,7 @@ const analyzeLines = (lines, runtime, prevState = null) => {
     return createDisabledAnalyzeLines(srcLines, activeRuntime.inlineProfileMask)
   }
   const cacheLimit = DEFAULT_CACHE_SIZE_LIMIT
-  const prevCache = prevState
-    && prevState.inlineProfileMask === activeRuntime.inlineProfileMask
-    && prevState.lineCache instanceof Map
-    ? prevState.lineCache
-    : null
-  const lineCache = prevCache ? new Map(prevCache) : new Map()
+  const lineCache = getReusableLineCache(prevState, activeRuntime.inlineProfileMask)
   const results = new Array(lineCount)
   const paragraphTypes = new Array(lineCount)
   const blankFlags = new Array(lineCount)
@@ -397,7 +403,7 @@ const analyzeLines = (lines, runtime, prevState = null) => {
   for (let i = 0; i < lineCount; i++) {
     const line = srcLines[i]
     const key = line
-    let base = prevCache ? prevCache.get(key) : null
+    let base = lineCache.get(key)
     if (base) cacheHits++
     if (!base) {
       base = analyzeLineFast(line, activeRuntime)
@@ -445,12 +451,7 @@ const analyzeLineWindow = (lines, runtime, fromLine, toLine, prevState = null, o
   }
 
   const cacheLimit = resolveCacheLimit(option)
-  const prevCache = prevState
-    && prevState.inlineProfileMask === activeRuntime.inlineProfileMask
-    && prevState.lineCache instanceof Map
-    ? prevState.lineCache
-    : null
-  const lineCache = prevCache ? new Map(prevCache) : new Map()
+  const lineCache = getReusableLineCache(prevState, activeRuntime.inlineProfileMask)
   const windowLength = Math.max(0, to - from)
   const results = new Array(windowLength)
   const paragraphTypes = new Array(windowLength)
@@ -482,7 +483,7 @@ const analyzeLineWindow = (lines, runtime, fromLine, toLine, prevState = null, o
   for (let i = from; i < to; i++) {
     const line = windowLines[i - from]
     const key = line
-    let base = prevCache ? prevCache.get(key) : null
+    let base = lineCache.get(key)
     if (base) cacheHits++
     if (!base) {
       base = analyzeLineFast(line, activeRuntime)

@@ -75,9 +75,11 @@
   - `analyzeLines` / `analyzeLineWindow` precompute blank-line flags per target slice to avoid repeated `trim()` work during paragraph-type propagation.
   - `analyzeLines` / `analyzeLineWindow` short-circuit to noop line descriptors when the runtime has no enabled features.
   - Analyzer entry points reuse a module-level default runtime (`createRuntimePlan({})`) when callers omit runtime, avoiding repeated fallback runtime allocations.
+  - Analyzer line caches are reused across incremental calls when the `inlineProfileMask` matches; returned `state.lineCache` is intended to be fed back into later analyzer calls.
   - Cache refresh paths prefer single-probe `Map` operations (`get` / `delete`) over paired `has + get/delete` checks.
   - `lineStartsWithStar` / `lineStartsWithPercent` check the first non-whitespace marker directly; escape parity is handled separately by `isEscaped*` helpers where needed.
   - In renderer hot paths, raw inline-HTML context scanning is skipped unless the inline token array actually contains `html_inline` tokens.
+  - Core-state line caches split `state.src` on `\n`; markdown-it core normalize has already canonicalized line endings before these core rules run.
 
 ## Tests
 - Full suite: `npm test`
