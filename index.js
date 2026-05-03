@@ -1909,6 +1909,7 @@ function rendererInlineText (md, option = {}) {
   const percentParagraphClassEnabled = runtime.percentParagraphClassEnabled
   const anyEnabled = runtime.anyEnabled
   const markerEnabled = starEnabled || percentEnabled
+  const markerInlineEnabled = runtime.starInlineEnabled || runtime.percentInlineEnabled
   const percentClass = opt.percentClassEscaped || DEFAULT_PERCENT_CLASS
   const needsParagraphSupport = !!(
     (starParagraphEnabled && starDeleteEnabled)
@@ -1942,7 +1943,7 @@ function rendererInlineText (md, option = {}) {
   if (markerEnabled) {
     md.inline.ruler.before('escape', 'star_percent_escape_meta', applyEscapeMetaInlineRule)
   }
-  if (markerEnabled) {
+  if (markerInlineEnabled) {
     md.inline.ruler.before('text', 'star_percent_comment_preparse', createCommentPreparseInlineRule(runtime, {
       starDeleteMode: starDeleteEnabled,
       percentDeleteMode: percentDeleteEnabled,
