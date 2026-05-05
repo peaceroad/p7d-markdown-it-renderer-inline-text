@@ -4,7 +4,6 @@ import {
   PERCENT_CHAR,
   PERCENT_CHAR_CODE,
   PERCENT_MARKER,
-  DEFAULT_STAR_CLASS,
   DEFAULT_PERCENT_CLASS,
   RUBY_MARK_CHAR,
   normalizeOptions as normalizeSharedOptions,

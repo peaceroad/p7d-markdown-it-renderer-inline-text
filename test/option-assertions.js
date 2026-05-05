@@ -323,6 +323,45 @@ export const runOptionAssertions = ({ mdit, strongJa, mdRendererInlineText }) =>
     )
   }
 
+  // pair preparse is needed only in inline comment mode
+  {
+    const mdStarLineOnly = mdit().use(mdRendererInlineText, {
+      starComment: true,
+      starCommentLine: true,
+    })
+    assert.strictEqual(
+      mdStarLineOnly.inline.ruler.__rules__.filter((rule) => rule.name === 'star_percent_comment_preparse').length,
+      0,
+    )
+
+    const mdStarParagraphOnly = mdit().use(mdRendererInlineText, {
+      starComment: true,
+      starCommentParagraph: true,
+    })
+    assert.strictEqual(
+      mdStarParagraphOnly.inline.ruler.__rules__.filter((rule) => rule.name === 'star_percent_comment_preparse').length,
+      0,
+    )
+
+    const mdPercentLineOnly = mdit().use(mdRendererInlineText, {
+      percentComment: true,
+      percentCommentLine: true,
+    })
+    assert.strictEqual(
+      mdPercentLineOnly.inline.ruler.__rules__.filter((rule) => rule.name === 'star_percent_comment_preparse').length,
+      0,
+    )
+
+    const mdInlinePair = mdit().use(mdRendererInlineText, {
+      starComment: true,
+      percentComment: true,
+    })
+    assert.strictEqual(
+      mdInlinePair.inline.ruler.__rules__.filter((rule) => rule.name === 'star_percent_comment_preparse').length,
+      1,
+    )
+  }
+
   // option independence should hold in html:true and html:false
   {
     const mdStarOffHtmlTrue = mdit({ html: true }).use(mdRendererInlineText, {

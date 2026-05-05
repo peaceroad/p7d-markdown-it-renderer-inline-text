@@ -14,7 +14,7 @@ It adds:
 import mdit from 'markdown-it'
 import mditRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
 
-// Even with html:false, ruby/star/percent transforms work.
+// Ruby/star/percent transforms work with both html:true and html:false.
 const md = mdit({ html: true }).use(mditRendererInlineText, {
   ruby: true,
   starComment: true,
