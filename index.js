@@ -898,14 +898,27 @@ const hideTokenRange = (tokens, start, end) => {
 
 const findListItemBounds = (tokens, inlineIdx) => {
   if (!tokens || inlineIdx <= 0) return null
-  let openIdx = inlineIdx - 1
-  while (openIdx >= 0 && tokens[openIdx].type !== 'list_item_open') {
-    openIdx--
+
+  let openIdx = -1
+  let depth = 0
+  for (let i = inlineIdx - 1; i >= 0; i--) {
+    const token = tokens[i]
+    if (!token) continue
+    if (token.type === 'list_item_close') {
+      depth++
+      continue
+    }
+    if (token.type !== 'list_item_open') continue
+    if (depth === 0) {
+      openIdx = i
+      break
+    }
+    depth--
   }
   if (openIdx < 0) return null
 
-  let depth = 0
-  for (let i = openIdx + 1; i < tokens.length; i++) {
+  depth = 0
+  for (let i = inlineIdx + 1; i < tokens.length; i++) {
     const token = tokens[i]
     if (token.type === 'list_item_open') {
       depth++
@@ -1197,6 +1210,8 @@ const ensureStarCommentParagraphDeleteCore = (md) => {
   safeCoreRule(md, 'star_comment_paragraph_delete', (state) => {
     const tokens = state.tokens
     if (!tokens || !tokens.length) return
+    const sourceFlags = getCoreSourceFlags(state)
+    if (!sourceFlags.hasStar) return
     for (let i = 0; i < tokens.length; i++) {
       const token = tokens[i]
       if (token.hidden || token.type !== 'inline' || !token.children || !token.children.length) {
@@ -1215,6 +1230,8 @@ const ensurePercentCommentParagraphDeleteCore = (md) => {
   safeCoreRule(md, 'percent_comment_paragraph_delete', (state) => {
     const tokens = state.tokens
     if (!tokens || !tokens.length) return
+    const sourceFlags = getCoreSourceFlags(state)
+    if (!sourceFlags.hasPercent) return
     for (let i = 0; i < tokens.length; i++) {
       const token = tokens[i]
       if (token.hidden || token.type !== 'inline' || !token.children || !token.children.length) {

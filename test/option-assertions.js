@@ -177,6 +177,82 @@ export const runOptionAssertions = ({ mdit, strongJa, mdRendererInlineText }) =>
     )
   }
 
+  // paragraph delete after a previous list item must not jump back to that list item
+  {
+    const src = [
+      '# タイトル',
+      '',
+      '本文。',
+      '',
+      '- [source](https://example.com)',
+      '',
+      '本文。',
+      '',
+      '---',
+      '',
+      '★以下ソース★',
+      '',
+      '- source item',
+      '  - https://example.com',
+      '',
+    ].join('\n')
+    const md = mdit({ html: true }).use(mdRendererInlineText, {
+      starComment: true,
+      starCommentDelete: true,
+      starCommentParagraph: true,
+      starCommentLine: false,
+    })
+    assert.strictEqual(
+      md.render(src),
+      '<h1>タイトル</h1>\n'
+        + '<p>本文。</p>\n'
+        + '<ul>\n'
+        + '<li><a href="https://example.com">source</a></li>\n'
+        + '</ul>\n'
+        + '<p>本文。</p>\n'
+        + '<hr>\n'
+        + '\n'
+        + '<ul>\n'
+        + '<li>source item\n'
+        + '<ul>\n'
+        + '<li>https://example.com</li>\n'
+        + '</ul>\n'
+        + '</li>\n'
+        + '</ul>\n',
+    )
+  }
+
+  // percent paragraph delete shares the same list-boundary guard
+  {
+    const src = [
+      '- [source](https://example.com)',
+      '',
+      '---',
+      '',
+      '%%sources%%',
+      '',
+      '- source item',
+      '',
+    ].join('\n')
+    const md = mdit({ html: true }).use(mdRendererInlineText, {
+      percentComment: true,
+      percentCommentDelete: true,
+      percentCommentParagraph: true,
+      percentCommentLine: false,
+    })
+    assert.strictEqual(
+      md.render(src),
+      '<ul>\n'
+        + '<li><a href="https://example.com">source</a></li>\n'
+        + '</ul>\n'
+        + '<hr>\n'
+        + '\n'
+        + '<ul>\n'
+        + '<li>source item</li>\n'
+        + '</ul>\n',
+    )
+  }
+
   // later core rules may blank inline.content; line-mode fallback must still inspect children
   {
     const md = mdit().use(mdRendererInlineText, {
