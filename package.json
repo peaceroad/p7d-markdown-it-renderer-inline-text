@@ -24,6 +24,6 @@
   "devDependencies": {
     "@peaceroad/markdown-it-cjk-breaks-mod": "^0.1.12",
     "@peaceroad/markdown-it-strong-ja": "^0.9.2",
-    "markdown-it": "^14.2.0"
+    "markdown-it": "^14.3.0"
   }
 }
