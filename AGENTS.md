@@ -29,7 +29,7 @@
 ## Rendering flow
 - Core rule `convertInlineTokens` dispatches to a precompiled inline runner and mutates tokens in place.
 - Escape sentinels are normalized once per text token; forced-active/escaped indexes live in token.meta. Backslash runs are cached (`__backslashLookup`) to keep escape checks O(n). Sentinels use noncharacter Unicode points (`U+FDD0..U+FDD5`) to reduce collision risk with normal text/control chars.
-- Backslash lookup uses `Uint16Array` by default and auto-switches to `Uint32Array` for long inputs to avoid run-length overflow.
+- Backslash lookup uses direct parity scans for short inputs, `Uint16Array` for longer inputs, and auto-switches to `Uint32Array` for very long inputs to avoid run-length overflow.
 - `html:true`:
   - Conversion runs only on markdown-it inline `text` tokens.
   - Raw `html_block` / `html_inline` token contents are not reparsed or rewritten by this plugin.
@@ -73,6 +73,7 @@
 - Analyzer hot paths:
   - `scanInlineRanges` scans ruby matches once per line and filters out ranges that overlap already-detected star/percent marker ranges.
   - `analyzeLines` / `analyzeLineWindow` precompute blank-line flags per target slice to avoid repeated `trim()` work during paragraph-type propagation.
+  - `analyzeLineWindow` backtracks only the first partial block to its real paragraph start, keeping paragraph types correct when boundary expansion is disabled or context starts mid-paragraph.
   - `analyzeLines` / `analyzeLineWindow` short-circuit to noop line descriptors when the runtime has no enabled features.
   - Analyzer entry points reuse a module-level default runtime (`createRuntimePlan({})`) when callers omit runtime, avoiding repeated fallback runtime allocations.
   - Analyzer line caches are reused across incremental calls when the `inlineProfileMask` matches; returned `state.lineCache` is intended to be fed back into later analyzer calls.
@@ -80,6 +81,7 @@
   - `lineStartsWithStar` / `lineStartsWithPercent` check the first non-whitespace marker directly; escape parity is handled separately by `isEscaped*` helpers where needed.
   - In renderer hot paths, raw inline-HTML context scanning is skipped unless the inline token array actually contains `html_inline` tokens.
   - Core-state line caches split `state.src` on `\n`; markdown-it core normalize has already canonicalized line endings before these core rules run.
+  - Ignored fenced/code/math lines are stored as merged source-map intervals rather than one `Set` entry per line, and line caches are built lazily only after an inline marker candidate is found.
 
 ## Tests
 - Full suite: `npm test`

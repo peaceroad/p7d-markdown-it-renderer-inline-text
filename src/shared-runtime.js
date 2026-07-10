@@ -10,6 +10,8 @@ const RUBY_BASE_CONTENT = '[\\p{sc=Han}0-9A-Za-z.\\-_]+'
 const RUBY_BASE_FALLBACK_CONTENT = '[\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF0-9A-Za-z.\\-_]+'
 const RUBY_REGEXP_CONTENT = '(?:<ruby>(' + RUBY_BASE_CONTENT + ')《([^》]+?)》<\\/ruby>|(' + RUBY_BASE_CONTENT + ')《([^》]+?)》)'
 const RUBY_REGEXP_FALLBACK_CONTENT = '(?:<ruby>(' + RUBY_BASE_FALLBACK_CONTENT + ')《([^》]+?)》<\\/ruby>|(' + RUBY_BASE_FALLBACK_CONTENT + ')《([^》]+?)》)'
+const BACKSLASH_TABLE_MIN_LENGTH = 256
+const NORMALIZED_OPTIONS = Symbol('normalizedOptions')
 
 export const toText = (value) => {
   if (typeof value === 'string') return value
@@ -46,6 +48,9 @@ export const countBackslashesBefore = (text, index) => {
 
 export const createBackslashLookup = (text) => {
   if (!text || text.indexOf('\\') === -1) return null
+  if (text.length < BACKSLASH_TABLE_MIN_LENGTH) {
+    return (idx) => countBackslashesBefore(text, idx)
+  }
   const run = text.length > 0xFFFF
     ? new Uint32Array(text.length + 1)
     : new Uint16Array(text.length + 1)
@@ -130,11 +135,15 @@ export const normalizeOptions = (option = {}) => {
   opt.starCommentParagraphClass = normalizeParagraphClass(opt.starCommentParagraphClass, DEFAULT_STAR_CLASS)
   opt.percentCommentParagraphClass = normalizeParagraphClass(opt.percentCommentParagraphClass, opt.percentClass)
   opt.__isNormalized = true
+  Object.defineProperty(opt, NORMALIZED_OPTIONS, { value: true })
   return opt
 }
 
 export const createRuntimePlan = (option = {}) => {
-  const opt = option && option.__isNormalized ? option : normalizeOptions(option)
+  // `createRuntimePlan` is public through the analyzer subpath. Do not trust the
+  // string-keyed internal hint on caller-owned objects. The module-private
+  // symbol keeps normalized options idempotent without exposing a bypass.
+  const opt = option && option[NORMALIZED_OPTIONS] ? option : normalizeOptions(option)
   const rubyEnabled = !!opt.ruby
   const starEnabled = !!opt.starComment
   const percentEnabled = !!opt.percentComment

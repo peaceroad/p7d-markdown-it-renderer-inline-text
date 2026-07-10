@@ -369,7 +369,7 @@ if (totalErrors > 0) {
   process.exit(1)
 }
 
-runOptionAssertions({ mdit, strongJa, mdRendererInlineText })
+runOptionAssertions({ mdit, cjkBreaks, strongJa, mdRendererInlineText })
 runAnalyzerAssertions({ mdit, mdRendererInlineText })
 
 console.log('All tests passed.')

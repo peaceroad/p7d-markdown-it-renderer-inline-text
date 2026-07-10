@@ -247,6 +247,7 @@ Recommended editor workflow:
 
 - Use `analyzeLineWindow(...)` for viewport/diff updates.
 - Expand a changed range with `expandToParagraphBoundaries(...)` (or use `analyzeLineWindow` default expansion).
+- Paragraph types are resolved from the actual paragraph start even when a requested window or its context starts mid-paragraph.
 - Use `shouldFullAnalyze(changeCount, totalLines)` to decide when to fallback to full-document `analyzeLines(...)`.
 - Keep final HTML output on `markdown-it + plugin` (not analyzer output).
 

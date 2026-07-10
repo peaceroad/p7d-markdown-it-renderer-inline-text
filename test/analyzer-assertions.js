@@ -46,6 +46,18 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
     assert.strictEqual(runtime.rubyEnabled, true)
   }
 
+  // Public callers cannot bypass option precedence with the internal hint key.
+  {
+    const runtime = createRuntimePlan({
+      __isNormalized: true,
+      starComment: true,
+      starCommentLine: true,
+      starCommentParagraph: true,
+    })
+    assert.strictEqual(runtime.starLineEnabled, true)
+    assert.strictEqual(runtime.starParagraphEnabled, false)
+  }
+
   {
     assert.strictEqual(isEscapedStar('\\★x', 1), true)
     assert.strictEqual(isEscapedStar('\\\\★x', 2), false)
@@ -71,6 +83,16 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
         ['ruby', '漢字《そと》'],
       ],
     )
+  }
+
+  // Both short direct scans and longer typed lookups preserve escape parity.
+  {
+    const runtime = createRuntimePlan({ starComment: true })
+    const longPrefix = 'x'.repeat(300)
+    const even = scanInlineRanges(`${longPrefix}\\\\★A★`, runtime)
+    const odd = scanInlineRanges(`${longPrefix}\\★A★`, runtime)
+    assert.deepStrictEqual(even.map((r) => r.text), ['★A★'])
+    assert.deepStrictEqual(odd, [])
   }
 
   {
@@ -273,6 +295,27 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
 
     const window2 = analyzeLineWindow(lines, runtime, 2, 3, window.state)
     assert.ok(window2.stats.cacheHits >= 2)
+  }
+
+  // Partial windows still inherit the type from the actual paragraph start.
+  {
+    const runtime = createRuntimePlan({
+      starComment: true,
+      starCommentParagraph: true,
+    })
+    const lines = ['★段落コメントです。', '続きです。', '', '通常です。']
+    const partial = analyzeLineWindow(lines, runtime, 1, 2, null, {
+      expandToParagraphBoundaries: false,
+    })
+    assert.strictEqual(partial.lines.length, 1)
+    assert.strictEqual(partial.lines[0].index, 1)
+    assert.strictEqual(partial.lines[0].paragraphType, 'star')
+
+    const withContext = analyzeLineWindow(lines, runtime, 3, 4, null, {
+      contextLines: 2,
+    })
+    assert.strictEqual(withContext.lines[0].index, 1)
+    assert.strictEqual(withContext.lines[0].paragraphType, 'star')
   }
 
   {

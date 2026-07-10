@@ -1,6 +1,32 @@
 import assert from 'assert'
 
-export const runOptionAssertions = ({ mdit, strongJa, mdRendererInlineText }) => {
+export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlineText }) => {
+  // Rules installed before markdown-it's escape rule must preserve hardbreak semantics.
+  {
+    const src = 'A\\  \nB'
+    const expected = mdit().render(src)
+    const actual = mdit().use(mdRendererInlineText, {
+      starComment: true,
+      percentComment: true,
+    }).render(src)
+    assert.strictEqual(actual, expected)
+  }
+
+  // Core/inline anchors remain available across markdown-it built-in presets.
+  {
+    for (const preset of ['default', 'commonmark', 'zero']) {
+      const md = mdit(preset).use(mdRendererInlineText, {
+        ruby: true,
+        starComment: true,
+        percentComment: true,
+      })
+      const html = md.render('前★星★後%%注%% 漢字《かんじ》')
+      assert.ok(html.includes('<span class="star-comment">★星★</span>'), preset)
+      assert.ok(html.includes('<span class="percent-comment">%%注%%</span>'), preset)
+      assert.ok(html.includes('<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>'), preset)
+    }
+  }
+
   // html:false: inline ★/%% pairs are fixed before markdown inline parsing
   {
     const md = mdit().use(mdRendererInlineText, {
@@ -152,6 +178,21 @@ export const runOptionAssertions = ({ mdit, strongJa, mdRendererInlineText }) =>
     )
   }
 
+  // The core order guard supports cjk-breaks on either side of this plugin.
+  {
+    const option = {
+      ruby: true,
+      starComment: true,
+      starCommentLine: true,
+      percentComment: true,
+      percentCommentLine: true,
+    }
+    const src = '★注記です。\n通常です。'
+    const pluginFirst = mdit().use(mdRendererInlineText, option).use(cjkBreaks, { either: true })
+    const cjkFirst = mdit().use(cjkBreaks, { either: true }).use(mdRendererInlineText, option)
+    assert.strictEqual(pluginFirst.render(src), cjkFirst.render(src))
+  }
+
   // delete options should stay independent between star and percent modes
   {
     const mdPercentLineWithStarDelete = mdit().use(mdRendererInlineText, {
@@ -175,6 +216,22 @@ export const runOptionAssertions = ({ mdit, strongJa, mdRendererInlineText }) =>
       mdStarLineWithPercentDelete.render('★行コメント\n通常'),
       '<p><span class="star-comment">★行コメント</span>\n通常</p>\n',
     )
+  }
+
+  // Ignored block lines are indexed as ranges; markers in code stay untouched.
+  {
+    const fenceBody = Array.from({ length: 200 }, (_, idx) => `code ${idx} ★x★ %%y%%`).join('\n')
+    const src = `\`\`\`text\n${fenceBody}\n\`\`\`\n\n★line comment`
+    const md = mdit().use(mdRendererInlineText, {
+      starComment: true,
+      starCommentLine: true,
+      percentComment: true,
+      percentCommentLine: true,
+    })
+    const html = md.render(src)
+    assert.ok(html.includes('code 0 ★x★ %%y%%'))
+    assert.ok(html.includes('code 199 ★x★ %%y%%'))
+    assert.ok(html.endsWith('<p><span class="star-comment">★line comment</span></p>\n'))
   }
 
   // paragraph delete after a previous list item must not jump back to that list item

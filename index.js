@@ -866,17 +866,55 @@ const getCachedTrimmedLine = (cache, idx) => {
   return trimmed
 }
 
+const createIgnoredLineRangeIndex = (ranges) => {
+  return {
+    has (line) {
+      let low = 0
+      let high = (ranges.length >> 1) - 1
+      while (low <= high) {
+        const mid = (low + high) >> 1
+        const offset = mid << 1
+        const start = ranges[offset]
+        const end = ranges[offset + 1]
+        if (line < start) {
+          high = mid - 1
+        } else if (line >= end) {
+          low = mid + 1
+        } else {
+          return true
+        }
+      }
+      return false
+    },
+  }
+}
+
 const collectIgnoredCommentLines = (tokens) => {
-  let ignoredLines = null
+  let sourceRanges = null
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]
     if (!isIgnoredCommentLineToken(token)) continue
-    if (!ignoredLines) ignoredLines = new Set()
-    for (let line = token.map[0]; line < token.map[1]; line++) {
-      ignoredLines.add(line)
+    const start = token.map[0]
+    const end = token.map[1]
+    if (end <= start) continue
+    if (!sourceRanges) sourceRanges = []
+    sourceRanges.push([start, end])
+  }
+  if (!sourceRanges) return null
+
+  sourceRanges.sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  const ranges = []
+  for (let i = 0; i < sourceRanges.length; i++) {
+    const start = sourceRanges[i][0]
+    const end = sourceRanges[i][1]
+    const lastEndIdx = ranges.length - 1
+    if (lastEndIdx >= 0 && start <= ranges[lastEndIdx]) {
+      if (end > ranges[lastEndIdx]) ranges[lastEndIdx] = end
+    } else {
+      ranges.push(start, end)
     }
   }
-  return ignoredLines
+  return createIgnoredLineRangeIndex(ranges)
 }
 
 const getIgnoredCommentLines = (state) => {
@@ -1137,11 +1175,31 @@ const ensureCommentLineCore = (md, config) => {
     } else if (!sourceFlags.hasPercent) {
       return
     }
-    const cache = getCommentLineCache(state)
-    const ignoredLines = getIgnoredCommentLines(state)
+    let cache = null
+    let ignoredLines = null
     for (let i = 0; i < state.tokens.length; i++) {
       const token = state.tokens[i]
       if (token.type !== 'inline' || !token.children || !token.children.length || !token.map) continue
+
+      // Source-level marker flags also see fenced/code/math content. Delay the
+      // line split and ignored-range index until a convertible text child is
+      // present in an inline block.
+      const inlineContent = typeof token.content === 'string' ? token.content : ''
+      let hasTextMarker = inlineContent.indexOf(marker) !== -1
+      if (!hasTextMarker && !inlineContent) {
+        for (let j = 0; j < token.children.length; j++) {
+          const child = token.children[j]
+          if (child && child.type === 'text' && typeof child.content === 'string' && child.content.indexOf(marker) !== -1) {
+            hasTextMarker = true
+            break
+          }
+        }
+      }
+      if (!hasTextMarker) continue
+      if (!cache) {
+        cache = getCommentLineCache(state)
+        ignoredLines = getIgnoredCommentLines(state)
+      }
       token.children[ignoredLinesKey] = ignoredLines
       token.children[baseLineKey] = token.map[0]
       const blockEnd = token.map[1]
@@ -1699,6 +1757,7 @@ const compileInlineTokenRunner = (profile) => {
 
       const isStarParagraph = starParagraphEnabled && isStarCommentParagraph(children)
       const isPercentParagraph = percentParagraphEnabled && isPercentCommentParagraph(children)
+      const blockHasCommentMarker = blockHasStar || blockHasPercent
 
       if (isStarParagraph && starDeleteEnabled) {
         children.__starCommentParagraphDelete = true
@@ -1740,7 +1799,7 @@ const compileInlineTokenRunner = (profile) => {
           if (htmlEnabled && token.meta && token.meta.__insideRawHtmlInline) {
             continue
           }
-          if (shouldNormalizeEscapes) {
+          if (shouldNormalizeEscapes && blockHasCommentMarker) {
             const normalized = normalizeEscapeSentinels(content, token)
             if (normalized !== content) {
               token.content = normalized

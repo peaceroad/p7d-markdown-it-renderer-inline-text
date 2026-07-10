@@ -331,6 +331,37 @@ const analyzeLineFast = (line, runtime) => {
   return { inlineRanges, lineModeRange }
 }
 
+const fillParagraphTypes = (allLines, windowLines, blankFlags, runtime, from, to, paragraphTypes) => {
+  let blockStart = from
+  while (blockStart < to) {
+    while (blockStart < to && blankFlags[blockStart - from]) blockStart++
+    if (blockStart >= to) break
+
+    let blockEnd = blockStart + 1
+    while (blockEnd < to && !blankFlags[blockEnd - from]) blockEnd++
+
+    // A window may start in the middle of a paragraph when boundary expansion
+    // is disabled or when context lines reach into the preceding paragraph.
+    // Resolve the actual first line before classifying the visible slice.
+    let paragraphStart = blockStart
+    if (blockStart === from) {
+      while (paragraphStart > 0 && !isBlankLine(toText(allLines[paragraphStart - 1]))) {
+        paragraphStart--
+      }
+    }
+    const firstLine = paragraphStart < from
+      ? toText(allLines[paragraphStart])
+      : windowLines[paragraphStart - from]
+    const paragraphType = getParagraphType(firstLine, runtime)
+    if (paragraphType) {
+      for (let i = blockStart; i < blockEnd; i++) {
+        paragraphTypes[i - from] = paragraphType
+      }
+    }
+    blockStart = blockEnd
+  }
+}
+
 const normalizeLineWindow = (lineCount, fromLine, toLine) => {
   if (lineCount <= 0) return { fromLine: 0, toLine: 0 }
   const from = clampInt(fromLine, 0, lineCount, 0)
@@ -385,20 +416,7 @@ const analyzeLines = (lines, runtime, prevState = null) => {
   }
 
   // Paragraph detection: first non-empty line in each blank-line separated block.
-  let blockStart = 0
-  while (blockStart < lineCount) {
-    while (blockStart < lineCount && blankFlags[blockStart]) blockStart++
-    if (blockStart >= lineCount) break
-    let blockEnd = blockStart + 1
-    while (blockEnd < lineCount && !blankFlags[blockEnd]) blockEnd++
-    const paragraphType = getParagraphType(srcLines[blockStart], activeRuntime)
-    if (paragraphType) {
-      for (let i = blockStart; i < blockEnd; i++) {
-        paragraphTypes[i] = paragraphType
-      }
-    }
-    blockStart = blockEnd
-  }
+  fillParagraphTypes(srcLines, srcLines, blankFlags, activeRuntime, 0, lineCount, paragraphTypes)
 
   for (let i = 0; i < lineCount; i++) {
     const line = srcLines[i]
@@ -465,20 +483,7 @@ const analyzeLineWindow = (lines, runtime, fromLine, toLine, prevState = null, o
     blankFlags[i] = isBlankLine(line)
   }
 
-  let blockStart = from
-  while (blockStart < to) {
-    while (blockStart < to && blankFlags[blockStart - from]) blockStart++
-    if (blockStart >= to) break
-    let blockEnd = blockStart + 1
-    while (blockEnd < to && !blankFlags[blockEnd - from]) blockEnd++
-    const paragraphType = getParagraphType(windowLines[blockStart - from], activeRuntime)
-    if (paragraphType) {
-      for (let i = blockStart; i < blockEnd; i++) {
-        paragraphTypes[i - from] = paragraphType
-      }
-    }
-    blockStart = blockEnd
-  }
+  fillParagraphTypes(srcLines, windowLines, blankFlags, activeRuntime, from, to, paragraphTypes)
 
   for (let i = from; i < to; i++) {
     const line = windowLines[i - from]
