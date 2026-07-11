@@ -60,6 +60,10 @@ export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlin
     )
     assert.strictEqual(md.render('\\★x★'), '<p>★x★</p>\n')
     assert.strictEqual(md.render('\\%%x%%'), '<p>%%x%%</p>\n')
+    assert.strictEqual(
+      md.render('\uFDD0prefix ★x★ \uFDD2suffix %%y%%'),
+      '<p>\uFDD0prefix <span class="star-comment">★x★</span> \uFDD2suffix <span class="percent-comment">%%y%%</span></p>\n',
+    )
   }
 
   // html:true: inline ★/%% preparse is also enabled (marker-priority path)
@@ -215,6 +219,37 @@ export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlin
     assert.strictEqual(
       mdStarLineWithPercentDelete.render('★行コメント\n通常'),
       '<p><span class="star-comment">★行コメント</span>\n通常</p>\n',
+    )
+  }
+
+  // Mixed star/percent line modes share one logical-line scan so deleting one
+  // line cannot erase the break boundary needed to classify the next line.
+  {
+    const mdBothDelete = mdit().use(mdRendererInlineText, {
+      starComment: true,
+      starCommentLine: true,
+      starCommentDelete: true,
+      percentComment: true,
+      percentCommentLine: true,
+      percentCommentDelete: true,
+    })
+    assert.strictEqual(mdBothDelete.render('★star\n%%percent'), '')
+    assert.strictEqual(mdBothDelete.render('%%percent\n★star'), '')
+    assert.strictEqual(
+      mdBothDelete.render('通常\n★star\n%%percent'),
+      '<p>通常</p>\n',
+    )
+
+    const mdStarDelete = mdit().use(mdRendererInlineText, {
+      starComment: true,
+      starCommentLine: true,
+      starCommentDelete: true,
+      percentComment: true,
+      percentCommentLine: true,
+    })
+    assert.strictEqual(
+      mdStarDelete.render('★star\n%%percent'),
+      '<p><span class="percent-comment">%%percent</span></p>\n',
     )
   }
 

@@ -46,7 +46,7 @@
   - HTML escaping (`escapeInlineHtml`) when needed (`&`, `<`, `>`, `"`)
 - In inline mode, marker ranges are fixed by preparse before markdown inline formatting, so markdown syntax inside `★...★` / `%%...%%` remains literal.
 - Line and paragraph modes:
-  - `markStarCommentLineGlobal` / `markPercentCommentLineGlobal` annotate spans once per inline token array.
+  - `markCommentLinesGlobal` scans each inline token array once and annotates enabled ★/%% line spans without losing logical break boundaries when either mode deletes a line.
   - line delete mode suppresses line content and adjacent breaks.
   - paragraph delete mode hides remaining inline tokens and sets `__starCommentParagraphDelete` / `__percentCommentParagraphDelete`.
   - optional paragraph class mode can add class directly on `<p>` (`starCommentParagraphClass` / `percentCommentParagraphClass`) and skip inner span wrapping.

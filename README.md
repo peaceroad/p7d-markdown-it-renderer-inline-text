@@ -218,6 +218,7 @@ Notes:
 
 - If `starCommentLine` is `true`, `starCommentParagraph` is disabled.
 - If `percentCommentLine` is `true`, `percentCommentParagraph` is disabled.
+- Star and percent line modes can be enabled together; mixed ★/%% lines are classified independently, including delete mode.
 - `percentClass` is escaped via `md.utils.escapeHtml`.
 
 ## Analyzer API (Experimental)
