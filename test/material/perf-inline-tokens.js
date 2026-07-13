@@ -10,6 +10,7 @@ const baseParagraphs = [
   '文章中の★スターコメント★は処理されます。',
   '文章中の★スターコメント\\★は処理されます。',
   '前%%コメント%%後',
+  '本文（図A.1）と (Figure.A-1) を参照します。',
   '漢字《かんじ》とHTML<span>★スターコメント★</span>。',
 ]
 
@@ -18,6 +19,7 @@ const payload = Array.from({ length: REPEAT }, () => sample).join('\n\n')
 
 const heavyParagraphs = [
   '見出し風の長文と★スターコメント★、さらに%%パーセント%%と漢字《かんじ》を混ぜます。',
+  '図番号（図Ａ-１）と (Figure.A-1)、対象外の（figure 3）を混ぜます。',
   '複数の★スター★が★連続★し、\\★エスケープや\\\\★も含みます。',
   'HTML <span class="note">★スターコメント★</span> と <em>漢字《かんじ》</em> の混在。',
   'コード風の `文字列\\★` と HTML <a href="#">リンク★コメント★</a>。',
@@ -31,6 +33,7 @@ const buildMarkdown = (useHtml, plugin) => {
   const md = useHtml ? mdit({ html: true }) : mdit()
   return md.use(plugin, {
     ruby: true,
+    figureReference: true,
     starComment: true,
     percentComment: true,
   })

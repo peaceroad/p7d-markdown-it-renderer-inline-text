@@ -1,7 +1,7 @@
 {
   "name": "@peaceroad/markdown-it-renderer-inline-text",
   "version": "0.8.2",
-  "description": "A markdown-it plugin and analyzer for inline ruby and star/percent comment rendering.",
+  "description": "A markdown-it plugin and analyzer for inline ruby, figure references, and star/percent comment rendering.",
   "main": "index.js",
   "type": "module",
   "exports": {

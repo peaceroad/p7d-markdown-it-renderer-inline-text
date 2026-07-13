@@ -6,6 +6,9 @@ export const PERCENT_MARKER = PERCENT_CHAR + PERCENT_CHAR
 export const RUBY_MARK_CHAR = '《'
 export const DEFAULT_STAR_CLASS = 'star-comment'
 export const DEFAULT_PERCENT_CLASS = 'percent-comment'
+export const DEFAULT_FIGURE_REFERENCE_CLASS = 'f-ref'
+export const DEFAULT_FIGURE_REFERENCE_TAG = 'span'
+const FIGURE_REFERENCE_TAGS = new Set(['span', 'b', 'i'])
 const RUBY_BASE_CONTENT = '[\\p{sc=Han}0-9A-Za-z.\\-_]+'
 const RUBY_BASE_FALLBACK_CONTENT = '[\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF0-9A-Za-z.\\-_]+'
 const RUBY_REGEXP_CONTENT = '(?:<ruby>(' + RUBY_BASE_CONTENT + ')《([^》]+?)》<\\/ruby>|(' + RUBY_BASE_CONTENT + ')《([^》]+?)》)'
@@ -23,6 +26,111 @@ const normalizeClassString = (value, fallbackClass) => {
   if (typeof value !== 'string') return fallbackClass
   const trimmed = value.trim()
   return trimmed || fallbackClass
+}
+
+const normalizeFigureReferenceTag = (value) => {
+  if (value == null) return DEFAULT_FIGURE_REFERENCE_TAG
+  if (typeof value !== 'string') {
+    throw new TypeError('figureReferenceTag must be one of: span, b, i')
+  }
+  const normalized = value.trim().toLowerCase()
+  if (!FIGURE_REFERENCE_TAGS.has(normalized)) {
+    throw new TypeError('figureReferenceTag must be one of: span, b, i')
+  }
+  return normalized
+}
+
+const isFigureReferenceNumberCode = (code) => {
+  return (code >= 48 && code <= 57) || (code >= 0xFF10 && code <= 0xFF19)
+}
+
+const isFigureReferenceUpperCode = (code) => {
+  return (code >= 65 && code <= 90) || (code >= 0xFF21 && code <= 0xFF3A)
+}
+
+const isFigureReferenceSpaceCode = (code) => {
+  return code === 32 || code === 9 || code === 0x3000
+}
+
+const consumeFigureReferenceSpaces = (text, pos, max) => {
+  while (pos < max && isFigureReferenceSpaceCode(text.charCodeAt(pos))) pos++
+  return pos
+}
+
+const consumeFigureReferenceComponent = (text, pos, max) => {
+  const code = pos < max ? text.charCodeAt(pos) : -1
+  if (isFigureReferenceUpperCode(code)) return pos + 1
+  if (!isFigureReferenceNumberCode(code)) return -1
+  pos++
+  while (pos < max && isFigureReferenceNumberCode(text.charCodeAt(pos))) pos++
+  return pos
+}
+
+export const hasFigureReferenceCandidate = (text) => {
+  if (typeof text !== 'string') return false
+  let pos = text.indexOf('図', 1)
+  while (pos !== -1) {
+    const openCode = text.charCodeAt(pos - 1)
+    if (openCode === 40 || openCode === 0xFF08) return true
+    pos = text.indexOf('図', pos + 1)
+  }
+  // `Fig` is also the common prefix of `Figure`, so one scan covers both.
+  pos = text.indexOf('Fig', 1)
+  while (pos !== -1) {
+    const openCode = text.charCodeAt(pos - 1)
+    if (openCode === 40 || openCode === 0xFF08) return true
+    pos = text.indexOf('Fig', pos + 1)
+  }
+  return false
+}
+
+export const parseFigureReferenceAt = (text, start, max) => {
+  if (typeof text !== 'string' || start < 0 || start >= text.length) return null
+  const limit = Math.min(text.length, Number.isInteger(max) ? max : text.length)
+  const openCode = text.charCodeAt(start)
+  const closeCode = openCode === 40 ? 41 : (openCode === 0xFF08 ? 0xFF09 : -1)
+  if (closeCode === -1 || start + 3 >= limit) return null
+
+  const contentStart = start + 1
+  let pos = contentStart
+  if (text.charCodeAt(pos) === 0x56F3) { // 図
+    pos++
+  } else {
+    let abbreviated = false
+    if (pos + 6 <= limit && text.startsWith('Figure', pos)) {
+      pos += 6
+    } else if (pos + 3 <= limit && text.startsWith('Fig', pos)) {
+      pos += 3
+      abbreviated = true
+    } else {
+      return null
+    }
+    const delimiterCode = pos < limit ? text.charCodeAt(pos) : -1
+    if (delimiterCode === 46) {
+      pos++
+      if (abbreviated) pos = consumeFigureReferenceSpaces(text, pos, limit)
+    } else {
+      const afterSpaces = consumeFigureReferenceSpaces(text, pos, limit)
+      if (afterSpaces === pos) return null
+      pos = afterSpaces
+    }
+  }
+
+  pos = consumeFigureReferenceComponent(text, pos, limit)
+  if (pos === -1) return null
+  while (pos < limit) {
+    const separatorCode = text.charCodeAt(pos)
+    if (separatorCode !== 45 && separatorCode !== 46) break
+    pos = consumeFigureReferenceComponent(text, pos + 1, limit)
+    if (pos === -1) return null
+  }
+  if (pos >= limit || text.charCodeAt(pos) !== closeCode) return null
+  return {
+    start,
+    end: pos + 1,
+    contentStart,
+    contentEnd: pos,
+  }
 }
 
 export const normalizeParagraphClass = (value, fallbackClass) => {
@@ -120,6 +228,9 @@ export const normalizeOptions = (option = {}) => {
     percentCommentLine: false,
     percentCommentParagraphClass: false,
     percentClass: DEFAULT_PERCENT_CLASS,
+    figureReference: false,
+    figureReferenceTag: DEFAULT_FIGURE_REFERENCE_TAG,
+    figureReferenceClass: DEFAULT_FIGURE_REFERENCE_CLASS,
     ...rawOption,
   }
   opt.starComment = !!opt.starComment
@@ -134,6 +245,9 @@ export const normalizeOptions = (option = {}) => {
   opt.percentClass = normalizeClassString(opt.percentClass, DEFAULT_PERCENT_CLASS)
   opt.starCommentParagraphClass = normalizeParagraphClass(opt.starCommentParagraphClass, DEFAULT_STAR_CLASS)
   opt.percentCommentParagraphClass = normalizeParagraphClass(opt.percentCommentParagraphClass, opt.percentClass)
+  opt.figureReference = !!opt.figureReference
+  opt.figureReferenceTag = normalizeFigureReferenceTag(opt.figureReferenceTag)
+  opt.figureReferenceClass = normalizeClassString(opt.figureReferenceClass, DEFAULT_FIGURE_REFERENCE_CLASS)
   opt.__isNormalized = true
   Object.defineProperty(opt, NORMALIZED_OPTIONS, { value: true })
   return opt
@@ -159,7 +273,10 @@ export const createRuntimePlan = (option = {}) => {
   const percentInlineEnabled = !!(percentEnabled && !percentParagraphEnabled && !percentLineEnabled)
   const percentParagraphClass = percentParagraphEnabled ? (opt.percentCommentParagraphClass || '') : ''
   const percentParagraphClassEnabled = !!percentParagraphClass
-  const anyEnabled = rubyEnabled || starEnabled || percentEnabled
+  const figureReferenceEnabled = !!opt.figureReference
+  const figureReferenceTag = opt.figureReferenceTag
+  const figureReferenceClass = opt.figureReferenceClass
+  const anyEnabled = rubyEnabled || starEnabled || percentEnabled || figureReferenceEnabled
   const inlineProfileMask = (rubyEnabled ? 1 : 0)
     | (starEnabled ? 2 : 0)
     | (starDeleteEnabled ? 4 : 0)
@@ -171,6 +288,7 @@ export const createRuntimePlan = (option = {}) => {
     | (percentLineEnabled ? 256 : 0)
     | (starParagraphClassEnabled ? 512 : 0)
     | (percentParagraphClassEnabled ? 1024 : 0)
+    | (figureReferenceEnabled ? 2048 : 0)
   return {
     rubyEnabled,
     starEnabled,
@@ -187,6 +305,9 @@ export const createRuntimePlan = (option = {}) => {
     percentInlineEnabled,
     percentParagraphClass,
     percentParagraphClassEnabled,
+    figureReferenceEnabled,
+    figureReferenceTag,
+    figureReferenceClass,
     anyEnabled,
     inlineProfileMask,
   }

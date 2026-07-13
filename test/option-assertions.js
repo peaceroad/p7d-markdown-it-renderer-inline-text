@@ -19,12 +19,263 @@ export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlin
         ruby: true,
         starComment: true,
         percentComment: true,
+        figureReference: true,
       })
-      const html = md.render('前★星★後%%注%% 漢字《かんじ》')
+      const html = md.render('前★星★後%%注%% 漢字《かんじ》 （図A）')
       assert.ok(html.includes('<span class="star-comment">★星★</span>'), preset)
       assert.ok(html.includes('<span class="percent-comment">%%注%%</span>'), preset)
       assert.ok(html.includes('<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>'), preset)
+      assert.ok(html.includes('（<span class="f-ref">図A</span>）'), preset)
     }
+  }
+
+  // Figure references wrap only the label/identifier while preserving paired parentheses.
+  {
+    const examples = [
+      ['（図1）', '（<span class="f-ref">図1</span>）'],
+      ['（図１）', '（<span class="f-ref">図１</span>）'],
+      ['（図A）', '（<span class="f-ref">図A</span>）'],
+      ['（図Ａ）', '（<span class="f-ref">図Ａ</span>）'],
+      ['（図1.1）', '（<span class="f-ref">図1.1</span>）'],
+      ['（図A.1）', '（<span class="f-ref">図A.1</span>）'],
+      ['（図1-1）', '（<span class="f-ref">図1-1</span>）'],
+      ['（図A-1）', '（<span class="f-ref">図A-1</span>）'],
+      ['(図A-1)', '(<span class="f-ref">図A-1</span>)'],
+      ['（Figure 1）', '（<span class="f-ref">Figure 1</span>）'],
+      ['（Figure A.1）', '（<span class="f-ref">Figure A.1</span>）'],
+      ['(Figure 1-1)', '(<span class="f-ref">Figure 1-1</span>)'],
+      ['(Figure Ａ-１)', '(<span class="f-ref">Figure Ａ-１</span>)'],
+      ['（Figure.1）', '（<span class="f-ref">Figure.1</span>）'],
+      ['(Figure.A-1)', '(<span class="f-ref">Figure.A-1</span>)'],
+      ['(Figure.A.1)', '(<span class="f-ref">Figure.A.1</span>)'],
+      ['(Fig 1)', '(<span class="f-ref">Fig 1</span>)'],
+      ['（Fig A.1）', '（<span class="f-ref">Fig A.1</span>）'],
+      ['(Fig.1)', '(<span class="f-ref">Fig.1</span>)'],
+      ['(Fig.A-1)', '(<span class="f-ref">Fig.A-1</span>)'],
+      ['(Fig.A.1)', '(<span class="f-ref">Fig.A.1</span>)'],
+      ['(Fig. 1)', '(<span class="f-ref">Fig. 1</span>)'],
+      ['（Fig.　Ａ-１）', '（<span class="f-ref">Fig.　Ａ-１</span>）'],
+    ]
+    for (const html of [false, true]) {
+      const md = mdit({ html }).use(mdRendererInlineText, { figureReference: true })
+      for (const [src, expected] of examples) {
+        assert.strictEqual(md.renderInline(src), expected, `${html}:${src}`)
+      }
+    }
+  }
+
+  // Figure references work in list text and preserve surrounding whitespace.
+  {
+    const md = mdit().use(mdRendererInlineText, { figureReference: true })
+    assert.strictEqual(
+      md.render('- 本文（図A.1）参照\n- See (Figure 1-1).'),
+      '<ul>\n'
+        + '<li>本文（<span class="f-ref">図A.1</span>）参照</li>\n'
+        + '<li>See (<span class="f-ref">Figure 1-1</span>).</li>\n'
+        + '</ul>\n',
+    )
+    assert.strictEqual(
+      md.renderInline(' (Figure A) '),
+      ' (<span class="f-ref">Figure A</span>) ',
+    )
+  }
+
+  // Figure-reference wrappers use balanced inline tokens and the default renderer.
+  {
+    const md = mdit().use(mdRendererInlineText, { figureReference: true })
+    const children = md.parseInline('前（図A.1）後', {})[0].children
+    assert.deepStrictEqual(
+      children.map((token) => ({
+        type: token.type,
+        tag: token.tag,
+        nesting: token.nesting,
+        level: token.level,
+        content: token.content,
+        attrs: token.attrs,
+      })),
+      [
+        { type: 'text', tag: '', nesting: 0, level: 0, content: '前（', attrs: null },
+        {
+          type: 'figure_reference_open',
+          tag: 'span',
+          nesting: 1,
+          level: 0,
+          content: '',
+          attrs: [['class', 'f-ref']],
+        },
+        { type: 'text', tag: '', nesting: 0, level: 1, content: '図A.1', attrs: null },
+        {
+          type: 'figure_reference_close',
+          tag: 'span',
+          nesting: -1,
+          level: 0,
+          content: '',
+          attrs: null,
+        },
+        { type: 'text', tag: '', nesting: 0, level: 0, content: '）後', attrs: null },
+      ],
+    )
+    assert.strictEqual(md.renderer.rules.figure_reference_open, undefined)
+    assert.strictEqual(md.renderer.rules.figure_reference_close, undefined)
+  }
+
+  // Figure-reference tag/class options are normalized and safely rendered.
+  {
+    const mdBold = mdit().use(mdRendererInlineText, {
+      figureReference: true,
+      figureReferenceTag: ' B ',
+      figureReferenceClass: ' figure-number ',
+    })
+    assert.strictEqual(
+      mdBold.renderInline('（図A）'),
+      '（<b class="figure-number">図A</b>）',
+    )
+
+    const mdItalic = mdit().use(mdRendererInlineText, {
+      figureReference: true,
+      figureReferenceTag: 'i',
+      figureReferenceClass: 'x" onclick="a&b',
+    })
+    assert.strictEqual(
+      mdItalic.renderInline('(Figure 1)'),
+      '(<i class="x&quot; onclick=&quot;a&amp;b">Figure 1</i>)',
+    )
+
+    assert.throws(
+      () => mdit().use(mdRendererInlineText, {
+        figureReference: true,
+        figureReferenceTag: 'script',
+      }),
+      /figureReferenceTag must be one of: span, b, i/,
+    )
+  }
+
+  // Figure-reference matching is fail-closed and honors Markdown/HTML boundaries.
+  {
+    const md = mdit({ html: true }).use(mdRendererInlineText, {
+      figureReference: true,
+      starComment: true,
+    })
+    assert.strictEqual(
+      md.renderInline(
+        '（figure 1） （fig. 1） (FIG.1) （図a） （図1_1） (Figure A.1）'
+          + ' （図１．１） （図Ａ－１） （Figure．1） (Figure.A－1)'
+          + ' （図1：1） (Figure-1) (Figure .1) (Fig-1) (Fig .1)',
+      ),
+      '（figure 1） （fig. 1） (FIG.1) （図a） （図1_1） (Figure A.1）'
+        + ' （図１．１） （図Ａ－１） （Figure．1） (Figure.A－1)'
+        + ' （図1：1） (Figure-1) (Figure .1) (Fig-1) (Fig .1)',
+    )
+    assert.strictEqual(
+      md.renderInline('`（図1）` [（図A）](https://example.test/(Figure%201)) <i title="(Figure 2)">x</i>'),
+      '<code>（図1）</code> <a href="https://example.test/(Figure%201)">（<span class="f-ref">図A</span>）</a> <i title="(Figure 2)">x</i>',
+    )
+    assert.strictEqual(
+      md.renderInline('![（図1）](figure.png)'),
+      '<img src="figure.png" alt="（図1）">',
+    )
+    assert.strictEqual(
+      md.renderInline('[x（図1）](https://example.test)'),
+      '<a href="https://example.test">x（<span class="f-ref">図1</span>）</a>',
+    )
+    assert.strictEqual(
+      md.renderInline('a[（図1）x'),
+      'a[（<span class="f-ref">図1</span>）x',
+    )
+    assert.strictEqual(
+      md.renderInline('<script>（図1）★注★</script><span>（図2）</span>'),
+      '<script>（図1）★注★</script><span>（<span class="f-ref">図2</span>）</span>',
+    )
+    assert.strictEqual(
+      md.renderInline('<style>(Figure 1)</style><textarea>（図A）</textarea><title>（図1）</title>'),
+      '<style>(Figure 1)</style><textarea>（図A）</textarea><title>（図1）</title>',
+    )
+    assert.strictEqual(
+      md.renderInline('<script><b>（図1）★注★</b></script>（図2）★外★'),
+      '<script><b>（図1）★注★</b></script>（<span class="f-ref">図2</span>）<span class="star-comment">★外★</span>',
+    )
+    assert.strictEqual(
+      md.renderInline('\\(Figure 1) (Figure 2)'),
+      '(Figure 1) (<span class="f-ref">Figure 2</span>)',
+    )
+    assert.strictEqual(md.renderInline('\\（図1）'), '\\（図1）')
+    assert.strictEqual(
+      md.renderInline('\\\\（図1）'),
+      '\\（<span class="f-ref">図1</span>）',
+    )
+
+    const mdText = mdit({ html: false }).use(mdRendererInlineText, {
+      figureReference: true,
+    })
+    assert.strictEqual(
+      mdText.renderInline('<i title="(Figure 2)">x</i>'),
+      '&lt;i title=&quot;(<span class="f-ref">Figure 2</span>)&quot;&gt;x&lt;/i&gt;',
+    )
+  }
+
+  // The shared preparse chooses the earliest figure/comment candidate.
+  {
+    const md = mdit().use(mdRendererInlineText, {
+      figureReference: true,
+      starComment: true,
+      percentComment: true,
+    })
+    assert.strictEqual(
+      md.renderInline('前（図1）★注★後'),
+      '前（<span class="f-ref">図1</span>）<span class="star-comment">★注★</span>後',
+    )
+    assert.strictEqual(
+      md.renderInline('前★注★（図1）後'),
+      '前<span class="star-comment">★注★</span>（<span class="f-ref">図1</span>）後',
+    )
+    assert.strictEqual(
+      md.renderInline('前★（図1）★後'),
+      '前<span class="star-comment">★（図1）★</span>後',
+    )
+    assert.strictEqual(
+      md.renderInline('前%%（図1）%%後'),
+      '前<span class="percent-comment">%%（図1）%%</span>後',
+    )
+    assert.strictEqual(
+      md.renderInline('前（図A）%%注%%後'),
+      '前（<span class="f-ref">図A</span>）<span class="percent-comment">%%注%%</span>後',
+    )
+    assert.strictEqual(
+      md.renderInline('前%%注%%（図A）後'),
+      '前<span class="percent-comment">%%注%%</span>（<span class="f-ref">図A</span>）後',
+    )
+    assert.strictEqual(
+      md.renderInline('前★未完 （図1）後'),
+      '前★未完 （<span class="f-ref">図1</span>）後',
+    )
+    assert.strictEqual(
+      md.renderInline('前%%未完 （図A）後'),
+      '前%%未完 （<span class="f-ref">図A</span>）後',
+    )
+  }
+
+  // Figure-reference tokens remain balanced inside line/paragraph comment wrappers.
+  {
+    const mdLine = mdit().use(mdRendererInlineText, {
+      figureReference: true,
+      starComment: true,
+      starCommentLine: true,
+    })
+    assert.strictEqual(
+      mdLine.render('★参照（図1）'),
+      '<p><span class="star-comment">★参照（<span class="f-ref">図1</span>）</span></p>\n',
+    )
+
+    const mdParagraphClass = mdit().use(mdRendererInlineText, {
+      figureReference: true,
+      percentComment: true,
+      percentCommentParagraph: true,
+      percentCommentParagraphClass: true,
+    })
+    assert.strictEqual(
+      mdParagraphClass.render('%%See (Figure A.1)'),
+      '<p class="percent-comment">%%See (<span class="f-ref">Figure A.1</span>)</p>\n',
+    )
   }
 
   // html:false: inline ★/%% pairs are fixed before markdown inline parsing
@@ -163,7 +414,7 @@ export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlin
   {
     const mdStrongJaFirst = mdit({ html: true })
       .use(strongJa)
-      .use(mdRendererInlineText, { starComment: true, percentComment: true })
+      .use(mdRendererInlineText, { starComment: true, percentComment: true, figureReference: true })
     assert.strictEqual(
       mdStrongJaFirst.render('**前★A**B★後'),
       '<p>**前<span class="star-comment">★A**B★</span>後</p>\n',
@@ -172,13 +423,21 @@ export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlin
       mdStrongJaFirst.render('★**重大変更**★'),
       '<p><span class="star-comment">★**重大変更**★</span></p>\n',
     )
+    assert.strictEqual(
+      mdStrongJaFirst.render('**（図A.1）**'),
+      '<p><strong>（<span class="f-ref">図A.1</span>）</strong></p>\n',
+    )
 
     const mdStrongJaLast = mdit({ html: true })
-      .use(mdRendererInlineText, { starComment: true, percentComment: true })
+      .use(mdRendererInlineText, { starComment: true, percentComment: true, figureReference: true })
       .use(strongJa)
     assert.strictEqual(
       mdStrongJaLast.render('**前★A**B★後'),
       '<p>**前<span class="star-comment">★A**B★</span>後</p>\n',
+    )
+    assert.strictEqual(
+      mdStrongJaLast.render('**（図A.1）**'),
+      '<p><strong>（<span class="f-ref">図A.1</span>）</strong></p>\n',
     )
   }
 
@@ -190,8 +449,9 @@ export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlin
       starCommentLine: true,
       percentComment: true,
       percentCommentLine: true,
+      figureReference: true,
     }
-    const src = '★注記です。\n通常です。'
+    const src = '★注記です。\n通常です。（図A.1）'
     const pluginFirst = mdit().use(mdRendererInlineText, option).use(cjkBreaks, { either: true })
     const cjkFirst = mdit().use(cjkBreaks, { either: true }).use(mdRendererInlineText, option)
     assert.strictEqual(pluginFirst.render(src), cjkFirst.render(src))
@@ -491,7 +751,25 @@ export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlin
     )
   }
 
-  // pair preparse is needed only in inline comment mode
+  // The closure-local compiled runner cache varies only by the current HTML mode.
+  {
+    const md = mdit({ html: false }).use(mdRendererInlineText, {
+      ruby: true,
+      starComment: true,
+    })
+    const src = '前★<b>x</b>★後 漢字《かんじ》'
+    const escaped = '前<span class="star-comment">★&lt;b&gt;x&lt;/b&gt;★</span>後 '
+      + '<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>'
+    const raw = '前<span class="star-comment">★<b>x</b>★</span>後 '
+      + '<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>'
+    assert.strictEqual(md.renderInline(src), escaped)
+    md.options.html = true
+    assert.strictEqual(md.renderInline(src), raw)
+    md.options.html = false
+    assert.strictEqual(md.renderInline(src), escaped)
+  }
+
+  // The shared preparse is installed for inline comments or figure references.
   {
     const mdStarLineOnly = mdit().use(mdRendererInlineText, {
       starComment: true,
@@ -527,6 +805,22 @@ export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlin
     assert.strictEqual(
       mdInlinePair.inline.ruler.__rules__.filter((rule) => rule.name === 'star_percent_comment_preparse').length,
       1,
+    )
+
+    const mdFigureOnly = mdit().use(mdRendererInlineText, {
+      figureReference: true,
+    })
+    assert.strictEqual(
+      mdFigureOnly.inline.ruler.__rules__.filter((rule) => rule.name === 'star_percent_comment_preparse').length,
+      1,
+    )
+    assert.strictEqual(
+      mdFigureOnly.inline.ruler.__rules__.filter((rule) => rule.name === 'star_percent_escape_meta').length,
+      0,
+    )
+    assert.strictEqual(
+      mdFigureOnly.core.ruler.__rules__.filter((rule) => rule.name === 'inline_ruler_convert').length,
+      0,
     )
   }
 

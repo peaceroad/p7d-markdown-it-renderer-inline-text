@@ -6,6 +6,8 @@ import {
   PERCENT_MARKER,
   DEFAULT_PERCENT_CLASS,
   RUBY_MARK_CHAR,
+  hasFigureReferenceCandidate,
+  parseFigureReferenceAt,
   normalizeOptions as normalizeSharedOptions,
   countBackslashesBefore,
   createBackslashLookup,
@@ -224,26 +226,6 @@ const getInlineHtmlTagInfo = (tag) => {
   return { isClosing, tagName, isVoid, isSelfClosing }
 }
 
-const applyTagToStack = (stack, tag) => {
-  const info = getInlineHtmlTagInfo(tag)
-  if (!info) return null
-  if (info.isClosing) {
-    if (stack.length && stack[stack.length - 1] === info.tagName) {
-      stack.pop()
-    } else {
-      const idx = stack.lastIndexOf(info.tagName)
-      if (idx !== -1) {
-        stack.splice(idx, 1)
-      } else if (stack.length) {
-        stack.pop()
-      }
-    }
-  } else if (!info.isVoid && !info.isSelfClosing) {
-    stack.push(info.tagName)
-  }
-  return info
-}
-
 const findHtmlTagEnd = (value, start) => {
   const specialEnd = findSpecialHtmlEnd(value, start)
   if (specialEnd >= start) return specialEnd
@@ -363,27 +345,59 @@ const patchCoreRulerOrderGuard = (md) => {
   ensureCoreRuleOrder(md)
 }
 
+const updateRawHtmlTag = (rawTag, token) => {
+  if (
+    !token
+    || token.type !== 'html_inline'
+    || (token.meta && token.meta.__rendererInlineGenerated)
+  ) {
+    return rawTag
+  }
+  const info = getInlineHtmlTagInfo(token.content || '')
+  if (!info) return rawTag
+  if (rawTag) {
+    return info.isClosing && info.tagName === rawTag ? '' : rawTag
+  }
+  if (
+    !info.isClosing
+    && !info.isVoid
+    && !info.isSelfClosing
+    && INLINE_HTML_RAW_TEXT_TAGS.has(info.tagName)
+  ) {
+    return info.tagName
+  }
+  return rawTag
+}
+
 const ensureInlineHtmlContext = (tokens) => {
   if (!tokens || tokens.__inlineHtmlContextReady) return
   tokens.__inlineHtmlContextReady = true
-  const stack = []
+  let rawTag = ''
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]
     if (!token) continue
     if (token.type === 'html_inline') {
-      if (token.meta && token.meta.__rendererInlineGenerated) continue
-      const raw = token.content || ''
-      if (!raw || raw[0] !== '<') continue
-      if (!applyTagToStack(stack, raw)) {
-        continue
-      }
-    } else if (token.type === 'text' && stack.length) {
-      if (INLINE_HTML_RAW_TEXT_TAGS.has(stack[stack.length - 1])) {
-        token.meta = token.meta || {}
-        token.meta.__insideRawHtmlInline = true
-      }
+      rawTag = updateRawHtmlTag(rawTag, token)
+    } else if (token.type === 'text' && rawTag) {
+      token.meta = token.meta || {}
+      token.meta.__insideRawHtmlInline = true
     }
   }
+}
+
+const isInlinePreparseInsideRawHtml = (state) => {
+  const tokens = state && state.tokens
+  if (!tokens) return false
+  let context = state.__inlinePreparseRawHtmlContext
+  if (!context) {
+    context = { tokenIndex: 0, rawTag: '' }
+    state.__inlinePreparseRawHtmlContext = context
+  }
+  for (let i = context.tokenIndex; i < tokens.length; i++) {
+    context.rawTag = updateRawHtmlTag(context.rawTag, tokens[i])
+  }
+  context.tokenIndex = tokens.length
+  return !!context.rawTag
 }
 
 const hasInlineHtmlTokens = (tokens) => {
@@ -670,14 +684,16 @@ const isInlineTextStopCharCode = (code) => {
   }
 }
 
-const ensureCommentPreparseSourceFlags = (state, starEnabled, percentEnabled) => {
-  if (state.__commentPreparseSourceFlags) return state.__commentPreparseSourceFlags
+const ensureInlinePreparseSourceFlags = (state, starEnabled, percentEnabled, figureReferenceEnabled) => {
+  if (state.__inlinePreparseSourceFlags) return state.__inlinePreparseSourceFlags
   const src = state && typeof state.src === 'string' ? state.src : ''
   const flags = {
     hasStar: !!starEnabled && src.indexOf(STAR_CHAR) !== -1,
     hasPercent: !!percentEnabled && src.indexOf(PERCENT_MARKER) !== -1,
+    hasFigureReference: !!figureReferenceEnabled && hasFigureReferenceCandidate(src),
+    hasInlineHtml: undefined,
   }
-  state.__commentPreparseSourceFlags = flags
+  state.__inlinePreparseSourceFlags = flags
   return flags
 }
 
@@ -689,34 +705,59 @@ const ensureSourceBackslashLookup = (state, src) => {
   return lookup
 }
 
-const createCommentPreparseInlineRule = (runtime, preparseProfile) => {
+const createInlinePreparseRule = (runtime, preparseProfile) => {
   const starDeleteMode = !!preparseProfile.starDeleteMode
   const percentDeleteMode = !!preparseProfile.percentDeleteMode
   const percentClass = preparseProfile.percentClass || DEFAULT_PERCENT_CLASS
+  const figureReferenceTag = runtime.figureReferenceTag
+  const figureReferenceClass = runtime.figureReferenceClass
+  const starInlineEnabled = runtime.starInlineEnabled
+  const percentInlineEnabled = runtime.percentInlineEnabled
+  const figureReferenceEnabled = runtime.figureReferenceEnabled
   return (state, silent) => {
-    const htmlEnabled = !!(state && state.md && state.md.options && state.md.options.html)
-
-    let starInlineMode = runtime.starInlineEnabled
-    let percentInlineMode = runtime.percentInlineEnabled
-    const sourceFlags = ensureCommentPreparseSourceFlags(state, starInlineMode, percentInlineMode)
-    if (starInlineMode && !sourceFlags.hasStar) starInlineMode = false
-    if (percentInlineMode && !sourceFlags.hasPercent) percentInlineMode = false
-    if (!starInlineMode && !percentInlineMode) return false
+    const sourceFlags = ensureInlinePreparseSourceFlags(
+      state,
+      starInlineEnabled,
+      percentInlineEnabled,
+      figureReferenceEnabled,
+    )
+    const starInlineMode = sourceFlags.hasStar
+    const percentInlineMode = sourceFlags.hasPercent
+    const figureReferenceMode = sourceFlags.hasFigureReference
+    if (!starInlineMode && !percentInlineMode && !figureReferenceMode) return false
 
     const start = state.pos
     const max = state.posMax
     if (start >= max) return false
     const src = state.src
+    if (state.md && state.md.options && state.md.options.html) {
+      if (sourceFlags.hasInlineHtml === undefined) {
+        sourceFlags.hasInlineHtml = src.indexOf('<') !== -1
+      }
+      if (sourceFlags.hasInlineHtml && isInlinePreparseInsideRawHtml(state)) return false
+    }
     const getEscapesBefore = ensureSourceBackslashLookup(state, src)
     const hasSourceBackslash = !!getEscapesBefore
 
+    let figureReferenceMatch = null
+    let commentClosePos = -1
     const detectMarkerType = (idx) => {
       if (
         starInlineMode
         && src.charCodeAt(idx) === STAR_CHAR_CODE
         && (!hasSourceBackslash || !isEscapedSourceMarker(src, idx, getEscapesBefore))
       ) {
-        return 1
+        const closePos = findInlineStarCommentClose(
+          src,
+          idx + 1,
+          max,
+          getEscapesBefore,
+          hasSourceBackslash,
+        )
+        if (closePos !== -1) {
+          commentClosePos = closePos
+          return 1
+        }
       }
       if (
         percentInlineMode
@@ -725,11 +766,35 @@ const createCommentPreparseInlineRule = (runtime, preparseProfile) => {
         && src.charCodeAt(idx + 1) === PERCENT_CHAR_CODE
         && (!hasSourceBackslash || !isEscapedSourceMarker(src, idx, getEscapesBefore))
       ) {
-        return 2
+        const closePos = findInlinePercentCommentClose(
+          src,
+          idx + 2,
+          max,
+          getEscapesBefore,
+          hasSourceBackslash,
+        )
+        if (closePos !== -1) {
+          commentClosePos = closePos
+          return 2
+        }
+      }
+      if (figureReferenceMode) {
+        const code = src.charCodeAt(idx)
+        if (
+          (code === 40 || code === 0xFF08)
+          && (!hasSourceBackslash || !isEscapedSourceMarker(src, idx, getEscapesBefore))
+        ) {
+          const match = parseFigureReferenceAt(src, idx, max)
+          if (match) {
+            figureReferenceMatch = match
+            return 3
+          }
+        }
       }
       return 0
     }
 
+    let candidateStart = start
     let markerType = detectMarkerType(start)
     if (!markerType) {
       const startCode = src.charCodeAt(start)
@@ -737,20 +802,41 @@ const createCommentPreparseInlineRule = (runtime, preparseProfile) => {
       for (let i = start + 1; i < max; i++) {
         const code = src.charCodeAt(i)
         if (isInlineTextStopCharCode(code)) return false
+        figureReferenceMatch = null
+        commentClosePos = -1
         markerType = detectMarkerType(i)
         if (!markerType) continue
         if (silent) return false
         const token = state.push('text', '', 0)
         token.content = src.slice(start, i)
-        state.pos = i
-        return true
+        candidateStart = i
+        break
       }
-      return false
+      if (!markerType) return false
     }
 
-    const closePos = markerType === 1
-      ? findInlineStarCommentClose(src, start + 1, max, getEscapesBefore, hasSourceBackslash)
-      : findInlinePercentCommentClose(src, start + 2, max, getEscapesBefore, hasSourceBackslash)
+    if (markerType === 3) {
+      const match = figureReferenceMatch
+      if (!match) return false
+      if (silent) {
+        state.pos = match.end
+        return true
+      }
+
+      const opening = state.push('text', '', 0)
+      opening.content = src.slice(match.start, match.contentStart)
+      const open = state.push('figure_reference_open', figureReferenceTag, 1)
+      open.attrSet('class', figureReferenceClass)
+      const content = state.push('text', '', 0)
+      content.content = src.slice(match.contentStart, match.contentEnd)
+      state.push('figure_reference_close', figureReferenceTag, -1)
+      const closing = state.push('text', '', 0)
+      closing.content = src.slice(match.contentEnd, match.end)
+      state.pos = match.end
+      return true
+    }
+
+    const closePos = commentClosePos
     if (closePos === -1) return false
     if (silent) {
       state.pos = markerType === 1 ? closePos + 1 : closePos + 2
@@ -758,9 +844,10 @@ const createCommentPreparseInlineRule = (runtime, preparseProfile) => {
     }
 
     const end = markerType === 1 ? closePos + 1 : closePos + 2
-    const rawSegment = src.slice(start, end)
+    const rawSegment = src.slice(candidateStart, end)
     const deleteMode = markerType === 1 ? starDeleteMode : percentDeleteMode
     if (!deleteMode) {
+      const htmlEnabled = !!(state.md && state.md.options && state.md.options.html)
       const token = state.push('html_inline', '', 0)
       const segment = htmlEnabled ? rawSegment : escapeTextContent(rawSegment)
       token.meta = token.meta || {}
@@ -1929,7 +2016,9 @@ const compileInlineTokenRunner = (profile) => {
 }
 
 const getCompiledInlineTokenRunner = (runnerCache, runtime, htmlEnabled, percentClass) => {
-  const key = (runtime.inlineProfileMask << 1) | (htmlEnabled ? 1 : 0)
+  // The cache belongs to one installed markdown-it instance, whose runtime
+  // profile is fixed. Only html mode can vary between renders.
+  const key = htmlEnabled ? 1 : 0
   let runner = runnerCache[key]
   if (runner) return runner
   runner = compileInlineTokenRunner({
@@ -1987,9 +2076,13 @@ function rendererInlineText (md, option = {}) {
   const percentLineEnabled = runtime.percentLineEnabled
   const percentParagraphClass = runtime.percentParagraphClass
   const percentParagraphClassEnabled = runtime.percentParagraphClassEnabled
+  const figureReferenceEnabled = runtime.figureReferenceEnabled
   const anyEnabled = runtime.anyEnabled
   const markerEnabled = starEnabled || percentEnabled
-  const markerInlineEnabled = runtime.starInlineEnabled || runtime.percentInlineEnabled
+  const inlinePreparseEnabled = runtime.starInlineEnabled
+    || runtime.percentInlineEnabled
+    || figureReferenceEnabled
+  const coreTransformEnabled = rubyEnabled || markerEnabled
   const percentClass = opt.percentClassEscaped || DEFAULT_PERCENT_CLASS
   const needsParagraphSupport = !!(
     (starParagraphEnabled && starDeleteEnabled)
@@ -2002,7 +2095,9 @@ function rendererInlineText (md, option = {}) {
   if (!anyEnabled) return
   md.__rendererInlineTextInstalled = true
 
-  patchCoreRulerOrderGuard(md)
+  if (coreTransformEnabled) {
+    patchCoreRulerOrderGuard(md)
+  }
 
   if (starLineEnabled) {
     ensureStarCommentLineCore(md)
@@ -2023,16 +2118,20 @@ function rendererInlineText (md, option = {}) {
   if (markerEnabled) {
     md.inline.ruler.before('escape', 'star_percent_escape_meta', applyEscapeMetaInlineRule)
   }
-  if (markerInlineEnabled) {
-    md.inline.ruler.before('text', 'star_percent_comment_preparse', createCommentPreparseInlineRule(runtime, {
+  if (inlinePreparseEnabled) {
+    // Preserve the existing rule name as a compatibility anchor even though
+    // the shared preparse now also recognizes figure references.
+    md.inline.ruler.before('text', 'star_percent_comment_preparse', createInlinePreparseRule(runtime, {
       starDeleteMode: starDeleteEnabled,
       percentDeleteMode: percentDeleteEnabled,
       percentClass,
     }))
   }
 
-  const inlineTokenRunnerCache = []
-  safeCoreRule(md, 'inline_ruler_convert', convertInlineTokens(runtime, inlineTokenRunnerCache, percentClass))
+  if (coreTransformEnabled) {
+    const inlineTokenRunnerCache = []
+    safeCoreRule(md, 'inline_ruler_convert', convertInlineTokens(runtime, inlineTokenRunnerCache, percentClass))
+  }
 }
 
 export default rendererInlineText

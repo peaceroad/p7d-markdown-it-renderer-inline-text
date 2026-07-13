@@ -12,6 +12,8 @@ import {
   isEscapedStar,
   isEscapedPercent,
   trimLineStartIndex,
+  hasFigureReferenceCandidate,
+  parseFigureReferenceAt,
 } from './shared-runtime.js'
 
 const DEFAULT_CACHE_SIZE_LIMIT = 4096
@@ -173,6 +175,71 @@ const findMarkerClose = (text, markerType, from, isEscapedAt) => {
   return -1
 }
 
+const mergeSortedRanges = (left, right) => {
+  if (!left.length) return right
+  if (!right.length) return left
+  let i = 0
+  let j = 0
+  const merged = new Array(left.length + right.length)
+  let out = 0
+  while (i < left.length && j < right.length) {
+    const a = left[i]
+    const b = right[j]
+    if (a.start < b.start || (a.start === b.start && a.end <= b.end)) {
+      merged[out++] = a
+      i++
+    } else {
+      merged[out++] = b
+      j++
+    }
+  }
+  while (i < left.length) merged[out++] = left[i++]
+  while (j < right.length) merged[out++] = right[j++]
+  return merged
+}
+
+const scanFigureReferenceRanges = (text, isEscapedAt, excludedRanges) => {
+  const ranges = []
+  let cursor = 0
+  let excludedIdx = 0
+  while (cursor < text.length) {
+    let start = cursor
+    while (start < text.length) {
+      const code = text.charCodeAt(start)
+      if (code === 40 || code === 0xFF08) break
+      start++
+    }
+    if (start >= text.length) break
+    if (isEscapedAt(start)) {
+      cursor = start + 1
+      continue
+    }
+    const match = parseFigureReferenceAt(text, start)
+    if (!match) {
+      cursor = start + 1
+      continue
+    }
+    while (excludedIdx < excludedRanges.length && excludedRanges[excludedIdx].end <= match.start) {
+      excludedIdx++
+    }
+    if (
+      excludedIdx < excludedRanges.length
+      && excludedRanges[excludedIdx].start < match.end
+    ) {
+      cursor = match.end
+      continue
+    }
+    ranges.push({
+      type: 'figure-reference',
+      start: match.start,
+      end: match.end,
+      text: text.slice(match.start, match.end),
+    })
+    cursor = match.end
+  }
+  return ranges
+}
+
 const scanRubyRangesInSegment = (text, start, end, out) => {
   if (start >= end) return
   const rubyMarkPos = text.indexOf(RUBY_MARK_CHAR, start)
@@ -209,12 +276,14 @@ const scanInlineRanges = (text, runtime) => {
   const allowStar = !!activeRuntime.starInlineEnabled
   const allowPercent = !!activeRuntime.percentInlineEnabled
   const allowRuby = !!activeRuntime.rubyEnabled
-  if (!allowStar && !allowPercent && !allowRuby) return []
+  const allowFigureReference = !!activeRuntime.figureReferenceEnabled
+  if (!allowStar && !allowPercent && !allowRuby && !allowFigureReference) return []
   const hasStar = allowStar && src.indexOf('★') !== -1
   const hasPercent = allowPercent && src.indexOf('%%') !== -1
   const hasRuby = allowRuby && src.indexOf(RUBY_MARK_CHAR) !== -1
-  if (!hasStar && !hasPercent && !hasRuby) return []
-  if (!hasStar && !hasPercent) {
+  const hasFigureReference = allowFigureReference && hasFigureReferenceCandidate(src)
+  if (!hasStar && !hasPercent && !hasRuby && !hasFigureReference) return []
+  if (!hasStar && !hasPercent && !hasFigureReference) {
     const rubyOnlyRanges = []
     scanRubyRangesInSegment(src, 0, src.length, rubyOnlyRanges)
     return rubyOnlyRanges
@@ -246,25 +315,33 @@ const scanInlineRanges = (text, runtime) => {
     cursor = end
   }
 
+  const figureReferenceRanges = hasFigureReference
+    ? scanFigureReferenceRanges(src, isEscapedAt, markerRanges)
+    : []
+  const protectedRanges = mergeSortedRanges(markerRanges, figureReferenceRanges)
+
   let rubyRanges = null
   if (hasRuby) {
     const scannedRubyRanges = []
     scanRubyRangesInSegment(src, 0, src.length, scannedRubyRanges)
     if (!scannedRubyRanges.length) {
       rubyRanges = scannedRubyRanges
-    } else if (!markerRanges.length) {
+    } else if (!protectedRanges.length) {
       rubyRanges = scannedRubyRanges
     } else {
       rubyRanges = []
-      let markerIdx = 0
+      let protectedIdx = 0
       for (let i = 0; i < scannedRubyRanges.length; i++) {
         const rubyRange = scannedRubyRanges[i]
-        while (markerIdx < markerRanges.length && markerRanges[markerIdx].end <= rubyRange.start) {
-          markerIdx++
+        while (
+          protectedIdx < protectedRanges.length
+          && protectedRanges[protectedIdx].end <= rubyRange.start
+        ) {
+          protectedIdx++
         }
         if (
-          markerIdx < markerRanges.length
-          && markerRanges[markerIdx].start < rubyRange.end
+          protectedIdx < protectedRanges.length
+          && protectedRanges[protectedIdx].start < rubyRange.end
         ) {
           continue
         }
@@ -273,32 +350,8 @@ const scanInlineRanges = (text, runtime) => {
     }
   }
 
-  if (!rubyRanges || !rubyRanges.length) return markerRanges
-  if (!markerRanges.length) return rubyRanges
-
-  let i = 0
-  let j = 0
-  const merged = []
-  while (i < markerRanges.length && j < rubyRanges.length) {
-    const a = markerRanges[i]
-    const b = rubyRanges[j]
-    if (a.start < b.start || (a.start === b.start && a.end <= b.end)) {
-      merged.push(a)
-      i++
-    } else {
-      merged.push(b)
-      j++
-    }
-  }
-  while (i < markerRanges.length) {
-    merged.push(markerRanges[i])
-    i++
-  }
-  while (j < rubyRanges.length) {
-    merged.push(rubyRanges[j])
-    j++
-  }
-  return merged
+  if (!rubyRanges || !rubyRanges.length) return protectedRanges
+  return mergeSortedRanges(protectedRanges, rubyRanges)
 }
 
 const getParagraphType = (line, runtime) => {

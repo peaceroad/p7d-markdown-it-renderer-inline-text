@@ -1,7 +1,7 @@
 # Agents Notes for p7d-markdown-it-renderer-inlines
 
 ## Purpose / Positioning
-- `index.js` provides a core-rule based implementation that keeps token metadata stable even when other plugins (e.g. `text_join`, `cjk_breaks`) are present.
+- `index.js` combines inline preparse for literal-priority syntax with core-rule transforms that keep token metadata stable even when other plugins (e.g. `text_join`, `cjk_breaks`) are present.
 - It prioritizes compatibility and robustness with other markdown-it plugins and HTML blocks while keeping performance competitive.
 
 ## Plugin wiring
@@ -9,8 +9,8 @@
 - `starCommentLine` overrides `starCommentParagraph`; `percentCommentLine` overrides `percentCommentParagraph`.
 - Hooks are patched once per instance:
   - `md.inline.ruler.before('escape', 'star_percent_escape_meta', applyEscapeMetaInlineRule)` captures backslash parity for ★/%% before markdown-it's escape rule runs (emits sentinels that normalize into token meta).
-  - `md.inline.ruler.before('text', 'star_percent_comment_preparse', createCommentPreparseInlineRule(runtime, preparseProfile))` runs inline preparse for ★/%% pairs in inline mode for both `html:false` and `html:true`.
-  - `safeCoreRule(..., 'inline_ruler_convert', ...)` installs the core rule for conversion.
+  - `md.inline.ruler.before('text', 'star_percent_comment_preparse', createInlinePreparseRule(runtime, preparseProfile))` runs one earliest-valid-candidate inline preparse for ★/%% pairs and parenthesized figure references. The legacy rule name remains as a compatibility anchor.
+  - `safeCoreRule(..., 'inline_ruler_convert', ...)` installs the core rule for ruby/comment conversion; figure-only configuration does not install a core rule.
   - `patchCoreRulerOrderGuard` wraps core-ruler mutators (`push/after/before/at`) and keeps `inline_ruler_convert` and `paragraph_wrapper_adjust` at the tail, so `text_join` / `cjk_breaks` and later-added core rules don't invalidate metadata.
   - `safeCoreRule(... 'star_comment_line_marker' ...)` runs when `starCommentLine` is enabled.
   - `safeCoreRule(... 'star_comment_paragraph_delete' ...)` runs when `starCommentParagraph` + `starCommentDelete` are enabled.
@@ -19,21 +19,23 @@
   - `safeCoreRule(..., 'paragraph_wrapper_adjust', ...)` hides paragraph wrappers and applies paragraph classes at token level (no renderer rule override).
 
 ## Runtime compilation
-- `createRuntimePlan` precomputes feature flags, inline-mode flags (`starInlineEnabled` / `percentInlineEnabled`), and `inlineProfileMask` for the current option set.
-- Inline conversion is compiled per `(inlineProfileMask + htmlEnabled bit)` and cached in the installed core-rule closure for that `markdown-it` instance.
+- `createRuntimePlan` precomputes feature flags, inline-mode flags (`starInlineEnabled` / `percentInlineEnabled` / `figureReferenceEnabled`), and the analyzer-facing `inlineProfileMask` for the current option set.
+- Inline conversion is compiled lazily per `htmlEnabled` bit and cached in the installed core-rule closure. The runtime profile is fixed per `markdown-it` instance, so repeating it in the closure-local cache key would be redundant.
 - `percentClass` / delete-mode decisions are fixed at install time and propagated into preparse/compiled runners so hot paths avoid repeated option-object reads.
 - Analyzer subpath (`./analyzer`) reuses the same option/runtime semantics without running markdown-it.
 - Shared option/runtime/line-parity helpers live in `src/shared-runtime.js` and are consumed by both `index.js` and `src/analyzer.js` to reduce drift.
+- `parseFigureReferenceAt` is the shared fail-closed parser for matching `図...`, `Figure...`, and `Fig...` references. `Figure` accepts an ASCII-dot or whitespace joint; `Fig` additionally accepts abbreviation-dot plus optional whitespace (`Fig. 1`). Identifiers use ASCII/fullwidth uppercase-letter or digit components joined only by ASCII dot or hyphen; fullwidth separators remain unsupported.
 - Analyzer exposes windowed/diff-friendly helpers (`analyzeLineWindow`, `expandToParagraphBoundaries`, `shouldFullAnalyze`) for editor integrations.
 
 ## Rendering flow
 - Core rule `convertInlineTokens` dispatches to a precompiled inline runner and mutates tokens in place.
 - Escape sentinels are normalized once per text token; forced-active/escaped indexes live in token.meta. Backslash runs are cached (`__backslashLookup`) to keep escape checks O(n). Sentinels use noncharacter Unicode points (`U+FDD0..U+FDD5`) to reduce collision risk with normal text/control chars.
 - Backslash lookup uses direct parity scans for short inputs, `Uint16Array` for longer inputs, and auto-switches to `Uint32Array` for very long inputs to avoid run-length overflow.
+- Figure-reference preparse preserves the parentheses as text and emits `figure_reference_open` / `figure_reference_close` tokens around only the recognized inner text. Tags are allowlisted (`span` / `b` / `i`), and the default renderer escapes the class attribute.
 - `html:true`:
   - Conversion runs only on markdown-it inline `text` tokens.
   - Raw `html_block` / `html_inline` token contents are not reparsed or rewritten by this plugin.
-  - Inline children use `ensureInlineHtmlContext` to skip conversion inside raw-text HTML regions.
+  - Inline preparse incrementally tracks source `html_inline` tokens, and core conversion uses `ensureInlineHtmlContext`; both skip content inside raw-text HTML regions, including tag-like tokens nested inside `script` / `style` / `textarea` / `title` text.
 - `html:false`:
   - inline ★/%% preparse emits wrapper `html_inline` tokens early when inline mode is active (same as `html:true`, but with HTML escaping inside wrapped segments).
   - preparse rule advances `state.pos` in `silent` mode when it accepts a marker pair, matching markdown-it `skipToken` contract (prevents crashes in link-label scans like `a[★b★c`).
@@ -44,7 +46,7 @@
   - star/percent pair conversion on remaining `text` tokens in `html:true` (`convertStarCommentInlineSegment` / `convertPercentCommentInlineSegment`)
   - line/paragraph wrapper insertion
   - HTML escaping (`escapeInlineHtml`) when needed (`&`, `<`, `>`, `"`)
-- In inline mode, marker ranges are fixed by preparse before markdown inline formatting, so markdown syntax inside `★...★` / `%%...%%` remains literal.
+- In inline mode, comment ranges and figure references are fixed by a shared earliest-valid-candidate preparse before markdown inline formatting, so feature order cannot cause one scanner to consume another feature's earlier marker. An unmatched ★/%% opener is skipped while searching for a later valid figure reference.
 - Line and paragraph modes:
   - `markCommentLinesGlobal` scans each inline token array once and annotates enabled ★/%% line spans without losing logical break boundaries when either mode deletes a line.
   - line delete mode suppresses line content and adjacent breaks.
@@ -71,7 +73,7 @@
 - Main perf check: `npm run perf` (`test/material/perf.js`).
 - Deep inline-token spot check: `node test/material/perf-inline-tokens.js` (env: `ITER`, `REPEAT`, `REPEAT_HEAVY`).
 - Analyzer hot paths:
-  - `scanInlineRanges` scans ruby matches once per line and filters out ranges that overlap already-detected star/percent marker ranges.
+  - `scanInlineRanges` scans figure-reference and ruby matches once per line and filters out ranges that overlap already-detected star/percent marker ranges.
   - `analyzeLines` / `analyzeLineWindow` precompute blank-line flags per target slice to avoid repeated `trim()` work during paragraph-type propagation.
   - `analyzeLineWindow` backtracks only the first partial block to its real paragraph start, keeping paragraph types correct when boundary expansion is disabled or context starts mid-paragraph.
   - `analyzeLines` / `analyzeLineWindow` short-circuit to noop line descriptors when the runtime has no enabled features.
@@ -80,6 +82,8 @@
   - Cache refresh paths prefer single-probe `Map` operations (`get` / `delete`) over paired `has + get/delete` checks.
   - `lineStartsWithStar` / `lineStartsWithPercent` check the first non-whitespace marker directly; escape parity is handled separately by `isEscaped*` helpers where needed.
   - In renderer hot paths, raw inline-HTML context scanning is skipped unless the inline token array actually contains `html_inline` tokens.
+  - Inline preparse creates raw-HTML context state only for `html:true` sources containing `<`; token processing is incremental across parser calls.
+  - Renderer and analyzer share a label-aware figure-candidate fast skip, so unrelated parenthesized text does not enter the figure parser.
   - Core-state line caches split `state.src` on `\n`; markdown-it core normalize has already canonicalized line endings before these core rules run.
   - Ignored fenced/code/math lines are stored as merged source-map intervals rather than one `Set` entry per line, and line caches are built lazily only after an inline marker candidate is found.
 
@@ -88,4 +92,5 @@
 - Fixture parser in `test/test.js` is strict (label-based expected HTML matching per option profile).
 - Option/edge assertions are separated in `test/option-assertions.js` (called from `test/test.js`).
 - Analyzer API assertions are in `test/analyzer-assertions.js` (called from `test/test.js`).
-- Inline preparse regression coverage includes bracket/link `skipToken` paths (e.g. `a[★b★c`, `[x★y★](...)`).
+- Inline preparse regression coverage includes bracket/link `skipToken` paths (e.g. `a[★b★c`, `[x★y★](...)`, `a[（図1）x`).
+- Figure-reference coverage includes ASCII/fullwidth identifiers, ASCII separators, spaced/dotted `Figure` / `Fig` forms, mixed ordering with ★/%%, code/link/HTML boundaries, tag/class validation, and figure-only rule installation.

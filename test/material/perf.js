@@ -9,6 +9,7 @@ const baseParagraphs = [
   '文章中の★スターコメント★は処理されます。',
   '文章中の★スターコメント\\★は処理されます。',
   '前%%コメント%%後',
+  '本文（図A.1）と (Fig. A-1) を参照します。',
   '漢字《かんじ》とHTML<span>★スターコメント★</span>。',
 ]
 
@@ -20,6 +21,7 @@ const cases = [
     name: 'html:false',
     md: mdit().use(rendererInlineText, {
       ruby: true,
+      figureReference: true,
       starComment: true,
       percentComment: true,
     }),
@@ -28,6 +30,7 @@ const cases = [
     name: 'html:true',
     md: mdit({ html: true }).use(rendererInlineText, {
       ruby: true,
+      figureReference: true,
       starComment: true,
       percentComment: true,
     }),

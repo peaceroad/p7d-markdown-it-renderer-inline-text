@@ -5,6 +5,7 @@ Inline text transform plugin for markdown-it.
 It adds:
 
 - Ruby conversion (`漢字《かんじ》`)
+- Figure-reference decoration (`（図1）`, `(Figure A)`, `(Fig. 1)`)
 - Star comments (`★...★`)
 - Percent comments (`%%...%%`)
 
@@ -14,9 +15,10 @@ It adds:
 import mdit from 'markdown-it'
 import mditRendererInlineText from '@peaceroad/markdown-it-renderer-inline-text'
 
-// Ruby/star/percent transforms work with both html:true and html:false.
+// Ruby/figure/star/percent transforms work with both html:true and html:false.
 const md = mdit({ html: true }).use(mditRendererInlineText, {
   ruby: true,
+  figureReference: true,
   starComment: true,
   percentComment: true,
 })
@@ -29,6 +31,9 @@ console.log(md.render('今日は甘味処が%%午後%%休みです。'))
 
 console.log(md.render('昼食は親子丼《おやこどん》です。'))
 // <p>昼食は<ruby>親子丼<rp>《</rp><rt>おやこどん</rt><rp>》</rp></ruby>です。</p>
+
+console.log(md.render('詳細は（図A.1）を参照してください。'))
+// <p>詳細は（<span class="f-ref">図A.1</span>）を参照してください。</p>
 ```
 
 ## Ruby Syntax
@@ -64,6 +69,53 @@ If the wrapper is unclosed (for example `<RUBY>寿司《すし》`), the wrapper
 Input:案内文：<ruby>寿司《すし》</ruby>を掲載します。
 Output:<p>案内文：<ruby>寿司<rp>《</rp><rt>すし</rt><rp>》</rp></ruby>を掲載します。</p>
 ```
+
+## Figure Reference Syntax
+
+Enable `figureReference` to decorate the label and identifier inside a paired
+ASCII or fullwidth parenthesis. The parentheses and surrounding whitespace are
+preserved.
+
+```md
+Input: 詳細は（図1）と（図A.1）を参照してください。
+Output: <p>詳細は（<span class="f-ref">図1</span>）と（<span class="f-ref">図A.1</span>）を参照してください。</p>
+
+Input: See (Figure 1-1) and (Figure A).
+Output: <p>See (<span class="f-ref">Figure 1-1</span>) and (<span class="f-ref">Figure A</span>).</p>
+
+Input: See (Fig. 1), (Fig.A-1), and (Figure.A.1).
+Output: <p>See (<span class="f-ref">Fig. 1</span>), (<span class="f-ref">Fig.A-1</span>), and (<span class="f-ref">Figure.A.1</span>).</p>
+```
+
+Recognized forms:
+
+- Parentheses must be a matching `(...)` or `（...）` pair.
+- Japanese references start with `図` and have no intervening space.
+- English references start with case-sensitive `Figure` or `Fig`.
+- `Figure` is followed by either an ASCII dot or one or more spaces, tabs, or
+  fullwidth spaces.
+- `Fig` is followed by one or more such spaces, or by an ASCII dot with
+  optional spaces after it. This covers `Fig 1`, `Fig.1`, and `Fig. 1`.
+- Each identifier component is either one ASCII/fullwidth uppercase letter or
+  one or more ASCII/fullwidth digits.
+- Components can be joined with ASCII `.` or `-`.
+
+Examples include `図1`, `図１`, `図A`, `図Ａ`, `図1.1`, `図A.1`, `図1-1`,
+`図A-1`, `Figure 1`, `Figure A.1`, `Figure.1`, `Figure.A-1`, and
+`Figure.A.1`, `Fig 1`, `Fig.1`, `Fig. 1`, and `Fig.A-1`. Lowercase aliases
+such as `figure` / `fig` and all-uppercase `FIG` are not recognized. Fullwidth
+separators such as `．`, `－`, and `：` are intentionally not recognized.
+
+The default tag is `<span class="f-ref">`. Use `figureReferenceTag` to
+select `span`, `b`, or `i`, and `figureReferenceClass` to change the class.
+The plugin emits the class hook but does not bundle a stylesheet for it.
+Inline/fenced code and link destinations are not rewritten. With `html:true`,
+raw HTML and its attributes are also left unchanged. With `html:false`,
+HTML-looking source is ordinary text, so a reference inside it can be
+decorated while markdown-it escapes the tag-like text. An odd backslash run
+before either opening parenthesis prevents conversion. Markdown-it removes the
+escaping backslash from `\(Figure 1)`; a backslash before fullwidth `（` remains
+literal because it is not standard Markdown ASCII punctuation.
 
 ## ★ / %% Comment Syntax
 
@@ -181,6 +233,15 @@ Output: <p class="star-comment">★本日は売り切れ次第終了です。</p
 - `ruby` (default: `false`)
   Enable ruby conversion.
 
+- `figureReference` (default: `false`)
+  Decorate recognized `図...`, `Figure...`, and `Fig...` references inside paired parentheses.
+
+- `figureReferenceTag` (default: `"span"`)
+  Output tag for the decorated reference. Allowed values are `"span"`, `"b"`, and `"i"`.
+
+- `figureReferenceClass` (default: `"f-ref"`)
+  CSS class for the decorated reference.
+
 - `starComment` (default: `false`)
   Enable `★...★` comments.
 
@@ -220,6 +281,7 @@ Notes:
 - If `percentCommentLine` is `true`, `percentCommentParagraph` is disabled.
 - Star and percent line modes can be enabled together; mixed ★/%% lines are classified independently, including delete mode.
 - `percentClass` is escaped via `md.utils.escapeHtml`.
+- `figureReferenceTag` is validated at setup time; token attribute rendering escapes `figureReferenceClass`.
 
 ## Analyzer API (Experimental)
 
@@ -258,6 +320,11 @@ Guaranteed parity scope:
 - inline marker pairing in inline mode (`starInlineEnabled` / `percentInlineEnabled`)
 - line-start checks (`starCommentLine` / `percentCommentLine`)
 - ruby shorthand range detection outside inline marker-wrapped ranges
+- figure-reference range detection outside inline marker-wrapped ranges
+
+With `figureReference`, matching ranges use `type: "figure-reference"` and
+cover the full parenthesized source range. Rendering still wraps only the inner
+label and identifier.
 
 Out of scope for strict parity:
 
@@ -272,9 +339,10 @@ Out of scope for strict parity:
 - Escape parity rule:
   - Odd number of backslashes before marker: marker is escaped.
   - Even number: marker can participate in pairing.
-- In inline mode (`html:true` / `html:false`), preparse handles star/percent pairs first.
+- In inline mode (`html:true` / `html:false`), one preparse pass selects the earliest valid enabled star, percent, or figure-reference candidate.
 - Markdown inline syntax inside a marker range is kept literal (for example, `★**bold**★`, ``★`code`★``, `★[link](...)★`).
 - Ruby conversion runs on text tokens; when marker preparse has already wrapped a range, ruby conversion does not rewrite inside that wrapped marker content.
+- Figure references emit normal paired inline tokens; figure-only configuration does not install the core conversion rule.
 
 ### HTML Boundary Behavior
 
@@ -305,7 +373,7 @@ Output:
 
 ### markdown-it Compatibility
 
-- The plugin runs as a core rule and may rewrite `text` tokens to `html_inline`.
+- Ruby and comment conversion run as core transforms and may rewrite `text` tokens to `html_inline`; figure references are emitted by inline preparse.
 - If another plugin expects raw `text` only, run that plugin earlier or support `html_inline`.
 - Designed to coexist with `text_join` / `cjk_breaks` by forcing conversion at the tail of core processing.
 - Install this plugin once per `markdown-it` instance. Use a fresh instance for a different option set.

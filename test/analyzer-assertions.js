@@ -25,11 +25,17 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
       percentCommentParagraph: true,
       percentClass: '  note  ',
       percentCommentParagraphClass: '  ',
+      figureReference: true,
+      figureReferenceTag: ' B ',
+      figureReferenceClass: ' figure-number ',
     })
     assert.strictEqual(normalized.starCommentParagraph, false)
     assert.strictEqual(normalized.percentCommentParagraph, true)
     assert.strictEqual(normalized.percentClass, 'note')
     assert.strictEqual(normalized.percentCommentParagraphClass, 'note')
+    assert.strictEqual(normalized.figureReference, true)
+    assert.strictEqual(normalized.figureReferenceTag, 'b')
+    assert.strictEqual(normalized.figureReferenceClass, 'figure-number')
   }
 
   {
@@ -40,10 +46,21 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
       percentComment: true,
       percentCommentLine: true,
       ruby: true,
+      figureReference: true,
     })
     assert.strictEqual(runtime.starInlineEnabled, true)
     assert.strictEqual(runtime.percentInlineEnabled, false)
     assert.strictEqual(runtime.rubyEnabled, true)
+    assert.strictEqual(runtime.figureReferenceEnabled, true)
+    assert.strictEqual(runtime.figureReferenceTag, 'span')
+    assert.strictEqual(runtime.figureReferenceClass, 'f-ref')
+  }
+
+  {
+    assert.throws(
+      () => normalizeOptions({ figureReferenceTag: 'script' }),
+      /figureReferenceTag must be one of: span, b, i/,
+    )
   }
 
   // Public callers cannot bypass option precedence with the internal hint key.
@@ -82,6 +99,81 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
         ['star', '★A%%B★'],
         ['ruby', '漢字《そと》'],
       ],
+    )
+  }
+
+  {
+    const runtime = createRuntimePlan({ figureReference: true })
+    const ranges = scanInlineRanges(
+      '前（図1）（図１）（図A）（図Ａ）（図1.1）（図A.1）（図1-1）（図A-1）'
+        + ' (Figure 1)（Figure A.1）(Figure.1)(Figure.A-1)'
+        + '（Figure.A.1）(Fig 1)(Fig.1)(Fig. A-1)（Fig.A.1）後',
+      runtime,
+    )
+    assert.deepStrictEqual(
+      ranges.map((r) => [r.type, r.text]),
+      [
+        ['figure-reference', '（図1）'],
+        ['figure-reference', '（図１）'],
+        ['figure-reference', '（図A）'],
+        ['figure-reference', '（図Ａ）'],
+        ['figure-reference', '（図1.1）'],
+        ['figure-reference', '（図A.1）'],
+        ['figure-reference', '（図1-1）'],
+        ['figure-reference', '（図A-1）'],
+        ['figure-reference', '(Figure 1)'],
+        ['figure-reference', '（Figure A.1）'],
+        ['figure-reference', '(Figure.1)'],
+        ['figure-reference', '(Figure.A-1)'],
+        ['figure-reference', '（Figure.A.1）'],
+        ['figure-reference', '(Fig 1)'],
+        ['figure-reference', '(Fig.1)'],
+        ['figure-reference', '(Fig. A-1)'],
+        ['figure-reference', '（Fig.A.1）'],
+      ],
+    )
+    assert.deepStrictEqual(
+      scanInlineRanges(
+        '（図１．１）（図Ａ－１）（Figure．1）(Figure.A－1)（図1：1）(fig. 1)(FIG.1)',
+        runtime,
+      ),
+      [],
+    )
+  }
+
+  {
+    const runtime = createRuntimePlan({
+      figureReference: true,
+      starComment: true,
+      percentComment: true,
+      ruby: true,
+    })
+    const ranges = scanInlineRanges(
+      '★（図1）★ （図2） %%（Figure A）%% (Figure 3) 漢字《かんじ》',
+      runtime,
+    )
+    assert.deepStrictEqual(
+      ranges.map((r) => [r.type, r.text]),
+      [
+        ['star', '★（図1）★'],
+        ['figure-reference', '（図2）'],
+        ['percent', '%%（Figure A）%%'],
+        ['figure-reference', '(Figure 3)'],
+        ['ruby', '漢字《かんじ》'],
+      ],
+    )
+    assert.deepStrictEqual(
+      scanInlineRanges('\\(Figure 1) (Figure 2)', runtime).map((r) => r.text),
+      ['(Figure 2)'],
+    )
+    assert.deepStrictEqual(scanInlineRanges('\\（図1）', runtime), [])
+    assert.deepStrictEqual(
+      scanInlineRanges('\\\\（図1）', runtime).map((r) => r.text),
+      ['（図1）'],
+    )
+    assert.deepStrictEqual(
+      scanInlineRanges('★未完 （図1） %%未完 (Figure A)', runtime).map((r) => r.text),
+      ['（図1）', '(Figure A)'],
     )
   }
 
@@ -199,6 +291,19 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
     assert.strictEqual(next.state.inlineProfileMask, runtimeB.inlineProfileMask)
     assert.strictEqual(next.state.lineCache.size, 1)
     assert.strictEqual(next.stats.cacheHits, 0)
+  }
+
+  {
+    const runtimeWithoutFigure = createRuntimePlan({ ruby: true })
+    const runtimeWithFigure = createRuntimePlan({ ruby: true, figureReference: true })
+    assert.notStrictEqual(
+      runtimeWithoutFigure.inlineProfileMask,
+      runtimeWithFigure.inlineProfileMask,
+    )
+    const first = analyzeLines(['（図A.1）'], runtimeWithFigure)
+    const next = analyzeLines(['（図A.1）'], runtimeWithoutFigure, first.state)
+    assert.strictEqual(next.stats.cacheHits, 0)
+    assert.deepStrictEqual(next.lines[0].inlineRanges, [])
   }
 
   {
@@ -348,21 +453,24 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
       starComment: true,
       percentComment: true,
       ruby: true,
+      figureReference: true,
     })
-    const input = '前★星★後%%注%%後 漢字《かんじ》'
+    const input = '前★星★後%%注%%後 漢字《かんじ》 （図A.1）'
     const ranges = scanInlineRanges(input, runtime)
     const md = mdit().use(mdRendererInlineText, {
       starComment: true,
       percentComment: true,
       ruby: true,
+      figureReference: true,
     })
     const html = md.render(input)
     assert.ok(html.includes('<span class="star-comment">★星★</span>'))
     assert.ok(html.includes('<span class="percent-comment">%%注%%</span>'))
     assert.ok(html.includes('<ruby>漢字<rp>《</rp><rt>かんじ</rt><rp>》</rp></ruby>'))
+    assert.ok(html.includes('（<span class="f-ref">図A.1</span>）'))
     assert.deepStrictEqual(
       ranges.map((r) => r.type),
-      ['star', 'percent', 'ruby'],
+      ['star', 'percent', 'ruby', 'figure-reference'],
     )
   }
 }
