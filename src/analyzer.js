@@ -13,7 +13,9 @@ import {
   isEscapedPercent,
   trimLineStartIndex,
   hasFigureReferenceCandidate,
+  hasFigureReferenceLabelCandidate,
   parseFigureReferenceAt,
+  parseFigureReferenceLabelAt,
 } from './shared-runtime.js'
 
 const DEFAULT_CACHE_SIZE_LIMIT = 4096
@@ -240,6 +242,59 @@ const scanFigureReferenceRanges = (text, isEscapedAt, excludedRanges) => {
   return ranges
 }
 
+const scanManualFigureReferenceRanges = (text, isEscapedAt, excludedRanges) => {
+  const ranges = []
+  let cursor = 0
+  let excludedIdx = 0
+  while (cursor < text.length) {
+    const start = text.indexOf('*', cursor)
+    if (start === -1) break
+    if ((start > 0 && text.charCodeAt(start - 1) === 42) || isEscapedAt(start)) {
+      cursor = start + 1
+      continue
+    }
+    let markerLength = 1
+    while (start + markerLength < text.length && text.charCodeAt(start + markerLength) === 42) {
+      markerLength++
+    }
+    if (markerLength > 2) {
+      cursor = start + markerLength
+      continue
+    }
+    const label = parseFigureReferenceLabelAt(text, start + markerLength)
+    if (!label) {
+      cursor = start + markerLength
+      continue
+    }
+    const closeStart = label.end
+    const end = closeStart + markerLength
+    if (
+      end > text.length
+      || text.charCodeAt(closeStart) !== 42
+      || (markerLength === 2 && text.charCodeAt(closeStart + 1) !== 42)
+      || (end < text.length && text.charCodeAt(end) === 42)
+    ) {
+      cursor = start + markerLength
+      continue
+    }
+    while (excludedIdx < excludedRanges.length && excludedRanges[excludedIdx].end <= start) {
+      excludedIdx++
+    }
+    if (excludedIdx < excludedRanges.length && excludedRanges[excludedIdx].start < end) {
+      cursor = end
+      continue
+    }
+    ranges.push({
+      type: 'figure-reference',
+      start,
+      end,
+      text: text.slice(start, end),
+    })
+    cursor = end
+  }
+  return ranges
+}
+
 const scanRubyRangesInSegment = (text, start, end, out) => {
   if (start >= end) return
   const rubyMarkPos = text.indexOf(RUBY_MARK_CHAR, start)
@@ -276,14 +331,18 @@ const scanInlineRanges = (text, runtime) => {
   const allowStar = !!activeRuntime.starInlineEnabled
   const allowPercent = !!activeRuntime.percentInlineEnabled
   const allowRuby = !!activeRuntime.rubyEnabled
-  const allowFigureReference = !!activeRuntime.figureReferenceEnabled
-  if (!allowStar && !allowPercent && !allowRuby && !allowFigureReference) return []
+  const allowFigureReferenceAuto = !!activeRuntime.figureReferenceAutoEnabled
+  const allowFigureReferenceManual = !!activeRuntime.figureReferenceManualEnabled
+  if (!allowStar && !allowPercent && !allowRuby && !allowFigureReferenceAuto && !allowFigureReferenceManual) return []
   const hasStar = allowStar && src.indexOf('★') !== -1
   const hasPercent = allowPercent && src.indexOf('%%') !== -1
   const hasRuby = allowRuby && src.indexOf(RUBY_MARK_CHAR) !== -1
-  const hasFigureReference = allowFigureReference && hasFigureReferenceCandidate(src)
-  if (!hasStar && !hasPercent && !hasRuby && !hasFigureReference) return []
-  if (!hasStar && !hasPercent && !hasFigureReference) {
+  const hasFigureReferenceAuto = allowFigureReferenceAuto && hasFigureReferenceCandidate(src)
+  const hasFigureReferenceManual = allowFigureReferenceManual
+    && src.indexOf('*') !== -1
+    && hasFigureReferenceLabelCandidate(src)
+  if (!hasStar && !hasPercent && !hasRuby && !hasFigureReferenceAuto && !hasFigureReferenceManual) return []
+  if (!hasStar && !hasPercent && !hasFigureReferenceAuto && !hasFigureReferenceManual) {
     const rubyOnlyRanges = []
     scanRubyRangesInSegment(src, 0, src.length, rubyOnlyRanges)
     return rubyOnlyRanges
@@ -315,9 +374,16 @@ const scanInlineRanges = (text, runtime) => {
     cursor = end
   }
 
-  const figureReferenceRanges = hasFigureReference
+  const automaticFigureReferenceRanges = hasFigureReferenceAuto
     ? scanFigureReferenceRanges(src, isEscapedAt, markerRanges)
     : []
+  const manualFigureReferenceRanges = hasFigureReferenceManual
+    ? scanManualFigureReferenceRanges(src, isEscapedAt, markerRanges)
+    : []
+  const figureReferenceRanges = mergeSortedRanges(
+    automaticFigureReferenceRanges,
+    manualFigureReferenceRanges,
+  )
   const protectedRanges = mergeSortedRanges(markerRanges, figureReferenceRanges)
 
   let rubyRanges = null

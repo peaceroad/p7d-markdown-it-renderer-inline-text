@@ -10,7 +10,7 @@
 - Hooks are patched once per instance:
   - `md.inline.ruler.before('escape', 'star_percent_escape_meta', applyEscapeMetaInlineRule)` captures backslash parity for ★/%% before markdown-it's escape rule runs (emits sentinels that normalize into token meta).
   - `md.inline.ruler.before('text', 'star_percent_comment_preparse', createInlinePreparseRule(runtime, preparseProfile))` runs one earliest-valid-candidate inline preparse for ★/%% pairs and parenthesized figure references. The legacy rule name remains as a compatibility anchor.
-  - `safeCoreRule(..., 'inline_ruler_convert', ...)` installs the core rule for ruby/comment conversion; figure-only configuration does not install a core rule.
+  - `safeCoreRule(..., 'inline_ruler_convert', ...)` installs the core rule for ruby/comment conversion and manual figure-reference retagging; automatic-figure-only configuration does not install a core rule.
   - `patchCoreRulerOrderGuard` wraps core-ruler mutators (`push/after/before/at`) and keeps `inline_ruler_convert` and `paragraph_wrapper_adjust` at the tail, so `text_join` / `cjk_breaks` and later-added core rules don't invalidate metadata.
   - `safeCoreRule(... 'star_comment_line_marker' ...)` runs when `starCommentLine` is enabled.
   - `safeCoreRule(... 'star_comment_paragraph_delete' ...)` runs when `starCommentParagraph` + `starCommentDelete` are enabled.
@@ -19,12 +19,12 @@
   - `safeCoreRule(..., 'paragraph_wrapper_adjust', ...)` hides paragraph wrappers and applies paragraph classes at token level (no renderer rule override).
 
 ## Runtime compilation
-- `createRuntimePlan` precomputes feature flags, inline-mode flags (`starInlineEnabled` / `percentInlineEnabled` / `figureReferenceEnabled`), and the analyzer-facing `inlineProfileMask` for the current option set.
+- `createRuntimePlan` precomputes feature flags, inline-mode flags (`starInlineEnabled` / `percentInlineEnabled`), separate `figureReferenceAutoEnabled` / `figureReferenceManualEnabled` flags, the manual marker-tag policy, and the analyzer-facing `inlineProfileMask` for the current option set. `figureReference` is a shorthand default for both mode flags; explicit mode values override it independently.
 - Inline conversion is compiled lazily per `htmlEnabled` bit and cached in the installed core-rule closure. The runtime profile is fixed per `markdown-it` instance, so repeating it in the closure-local cache key would be redundant.
 - `percentClass` / delete-mode decisions are fixed at install time and propagated into preparse/compiled runners so hot paths avoid repeated option-object reads.
 - Analyzer subpath (`./analyzer`) reuses the same option/runtime semantics without running markdown-it.
 - Shared option/runtime/line-parity helpers live in `src/shared-runtime.js` and are consumed by both `index.js` and `src/analyzer.js` to reduce drift.
-- `parseFigureReferenceAt` is the shared fail-closed parser for matching `図...`, `Figure...`, and `Fig...` references. `Figure` accepts an ASCII-dot or whitespace joint; `Fig` additionally accepts abbreviation-dot plus optional whitespace (`Fig. 1`). Identifiers use ASCII/fullwidth uppercase-letter or digit components joined only by ASCII dot or hyphen; fullwidth separators remain unsupported.
+- `parseFigureReferenceLabelAt` owns the shared label grammar; `parseFigureReferenceAt` adds matching ASCII/fullwidth parenthesis checks for auto mode. `Figure` accepts an ASCII-dot or whitespace joint; `Fig` additionally accepts abbreviation-dot plus optional whitespace (`Fig. 1`). Identifiers use ASCII/fullwidth uppercase-letter or digit components joined only by ASCII dot or hyphen; fullwidth separators remain unsupported.
 - Analyzer exposes windowed/diff-friendly helpers (`analyzeLineWindow`, `expandToParagraphBoundaries`, `shouldFullAnalyze`) for editor integrations.
 
 ## Rendering flow
@@ -32,6 +32,7 @@
 - Escape sentinels are normalized once per text token; forced-active/escaped indexes live in token.meta. Backslash runs are cached (`__backslashLookup`) to keep escape checks O(n). Sentinels use noncharacter Unicode points (`U+FDD0..U+FDD5`) to reduce collision risk with normal text/control chars.
 - Backslash lookup uses direct parity scans for short inputs, `Uint16Array` for longer inputs, and auto-switches to `Uint32Array` for very long inputs to avoid run-length overflow.
 - Figure-reference preparse preserves the parentheses as text and emits `figure_reference_open` / `figure_reference_close` tokens around only the recognized inner text. Tags are allowlisted (`span` / `b` / `i`), and the default renderer escapes the class attribute.
+- Manual figure-reference mode runs at the guarded core tail after markdown-it and caption plugins. It retags only exact `**reference**` / `*reference*` token triplets as balanced `figure_reference_open` / `figure_reference_close` pairs. Both use `figureReferenceTag` by default; `figureReferenceManualTagFromMarker: true` maps `**` to `b` and `*` to `i`. The two effective manual tags are precomputed in the compiled runner. Ordinary, underscored, nested/triple, or whitespace-padded emphasis remains untouched. Manual mode deliberately depends on markdown-it's `emphasis` inline rule and is a no-op when that rule is disabled (for example the stock `zero` preset).
 - `html:true`:
   - Conversion runs only on markdown-it inline `text` tokens.
   - Raw `html_block` / `html_inline` token contents are not reparsed or rewritten by this plugin.
@@ -62,6 +63,7 @@
 
 ## Known concerns
 - Because conversion is token-based (markdown-it output), behavior across HTML boundaries depends on markdown-it block/inline parsing (e.g. blank-line-separated content inside `<div>` can become inline tokens and thus be converted).
+- `@peaceroad/markdown-it-figure-with-p-caption` runs before replacements, while manual figure retagging stays at the guarded core tail. Plain caption labels are therefore claimed first in either plugin installation order, and generated caption-label tokens are not mistaken for source asterisk markers. A source label such as `**図1**` is not recognized as a caption by that dependency even without this plugin; captions should use a plain label plus the dependency's `bLabel` option.
 - `patchCoreRulerOrderGuard` wraps core-ruler mutators; plugins that mutate `core.ruler.__rules__` directly (without mutators) bypass order-guard reordering.
 - Plugin installation is first-use-wins per `markdown-it` instance; use a fresh instance to change option sets.
 - Analyzer cache keys are currently line-text based (`lineCache` keyed by the full line string). This is safe for the current line-local cached payloads, but future line-index/context-dependent metadata would require a wider cache key.
@@ -93,4 +95,4 @@
 - Option/edge assertions are separated in `test/option-assertions.js` (called from `test/test.js`).
 - Analyzer API assertions are in `test/analyzer-assertions.js` (called from `test/test.js`).
 - Inline preparse regression coverage includes bracket/link `skipToken` paths (e.g. `a[★b★c`, `[x★y★](...)`, `a[（図1）x`).
-- Figure-reference coverage includes ASCII/fullwidth identifiers, ASCII separators, spaced/dotted `Figure` / `Fig` forms, mixed ordering with ★/%%, code/link/HTML boundaries, tag/class validation, and figure-only rule installation.
+- Figure-reference coverage includes the logged `example-figure-reference.txt` golden fixture, auto/manual/both modes, the `figureReference` both-mode shorthand and per-mode overrides, shared configured tags, opt-in marker-derived manual tags, ASCII/fullwidth identifiers, ASCII separators, spaced/dotted `Figure` / `Fig` forms, mixed ordering with ★/%%, code/link/HTML boundaries, tag/class validation, automatic-figure-only rule installation, and both installation orders with `@peaceroad/markdown-it-figure-with-p-caption`.

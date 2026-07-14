@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import mdit from 'markdown-it'
 import cjkBreaks from '@peaceroad/markdown-it-cjk-breaks-mod'
+import figureWithPCaption from '@peaceroad/markdown-it-figure-with-p-caption'
 import strongJa from '@peaceroad/markdown-it-strong-ja'
 import mdRendererInlineText from '../index.js'
 import { runOptionAssertions } from './option-assertions.js'
@@ -18,6 +19,7 @@ const SUPPORTED_EXAMPLES = new Set([
   'cjkDefault',
   'cjkHalfEither',
   'cjkHalfEitherNormalize',
+  'figureReference',
   'ruby',
   'starComment',
   'starCommentParagraph',
@@ -109,6 +111,19 @@ const createRenderers = () => {
   return {
     md,
     mdWithHtml,
+    mdFigureReference: mdit().use(mdRendererInlineText, {
+      figureReference: true,
+    }),
+    mdFigureReferenceAuto: mdit().use(mdRendererInlineText, {
+      figureReferenceAuto: true,
+    }),
+    mdFigureReferenceManual: mdit().use(mdRendererInlineText, {
+      figureReferenceManual: true,
+    }),
+    mdFigureReferenceMarker: mdit().use(mdRendererInlineText, {
+      figureReference: true,
+      figureReferenceManualTagFromMarker: true,
+    }),
     mdStarDelete: mdit().use(mdRendererInlineText, {
       ruby: true,
       starComment: true,
@@ -258,6 +273,12 @@ const resolveFixtureRenderer = (example, label, renderers) => {
       return label === 'default' ? renderers.mdCjkHalfEither : null
     case 'cjkHalfEitherNormalize':
       return label === 'default' ? renderers.mdCjkHalfEitherNormalize : null
+    case 'figureReference':
+      if (label === 'default') return renderers.mdFigureReference
+      if (label === 'auto') return renderers.mdFigureReferenceAuto
+      if (label === 'manual') return renderers.mdFigureReferenceManual
+      if (label === 'marker') return renderers.mdFigureReferenceMarker
+      return null
     case 'ruby':
       if (label === 'default' || label === 'delete') return renderers.mdWithHtml
       if (label === 'false') return renderers.md
@@ -369,7 +390,7 @@ if (totalErrors > 0) {
   process.exit(1)
 }
 
-runOptionAssertions({ mdit, cjkBreaks, strongJa, mdRendererInlineText })
+runOptionAssertions({ mdit, cjkBreaks, figureWithPCaption, strongJa, mdRendererInlineText })
 runAnalyzerAssertions({ mdit, mdRendererInlineText })
 
 console.log('All tests passed.')

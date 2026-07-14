@@ -1,0 +1,10 @@
+[Markdown]
+参照：（図1）、(Figure A.1)、(Fig. 1)、**図A-1**、*Figure.A.1*、**重要**。
+[HTML]
+<p>参照：（<span class="f-ref">図1</span>）、(<span class="f-ref">Figure A.1</span>)、(<span class="f-ref">Fig. 1</span>)、<span class="f-ref">図A-1</span>、<span class="f-ref">Figure.A.1</span>、<strong>重要</strong>。</p>
+[HTML:auto]
+<p>参照：（<span class="f-ref">図1</span>）、(<span class="f-ref">Figure A.1</span>)、(<span class="f-ref">Fig. 1</span>)、<strong>図A-1</strong>、<em>Figure.A.1</em>、<strong>重要</strong>。</p>
+[HTML:manual]
+<p>参照：（図1）、(Figure A.1)、(Fig. 1)、<span class="f-ref">図A-1</span>、<span class="f-ref">Figure.A.1</span>、<strong>重要</strong>。</p>
+[HTML:marker]
+<p>参照：（<span class="f-ref">図1</span>）、(<span class="f-ref">Figure A.1</span>)、(<span class="f-ref">Fig. 1</span>)、<b class="f-ref">図A-1</b>、<i class="f-ref">Figure.A.1</i>、<strong>重要</strong>。</p>

@@ -7,7 +7,9 @@ import {
   DEFAULT_PERCENT_CLASS,
   RUBY_MARK_CHAR,
   hasFigureReferenceCandidate,
+  hasFigureReferenceLabelCandidate,
   parseFigureReferenceAt,
+  parseFigureReferenceLabelAt,
   normalizeOptions as normalizeSharedOptions,
   countBackslashesBefore,
   createBackslashLookup,
@@ -684,13 +686,13 @@ const isInlineTextStopCharCode = (code) => {
   }
 }
 
-const ensureInlinePreparseSourceFlags = (state, starEnabled, percentEnabled, figureReferenceEnabled) => {
+const ensureInlinePreparseSourceFlags = (state, starEnabled, percentEnabled, figureReferenceAutoEnabled) => {
   if (state.__inlinePreparseSourceFlags) return state.__inlinePreparseSourceFlags
   const src = state && typeof state.src === 'string' ? state.src : ''
   const flags = {
     hasStar: !!starEnabled && src.indexOf(STAR_CHAR) !== -1,
     hasPercent: !!percentEnabled && src.indexOf(PERCENT_MARKER) !== -1,
-    hasFigureReference: !!figureReferenceEnabled && hasFigureReferenceCandidate(src),
+    hasFigureReference: !!figureReferenceAutoEnabled && hasFigureReferenceCandidate(src),
     hasInlineHtml: undefined,
   }
   state.__inlinePreparseSourceFlags = flags
@@ -713,13 +715,13 @@ const createInlinePreparseRule = (runtime, preparseProfile) => {
   const figureReferenceClass = runtime.figureReferenceClass
   const starInlineEnabled = runtime.starInlineEnabled
   const percentInlineEnabled = runtime.percentInlineEnabled
-  const figureReferenceEnabled = runtime.figureReferenceEnabled
+  const figureReferenceAutoEnabled = runtime.figureReferenceAutoEnabled
   return (state, silent) => {
     const sourceFlags = ensureInlinePreparseSourceFlags(
       state,
       starInlineEnabled,
       percentInlineEnabled,
-      figureReferenceEnabled,
+      figureReferenceAutoEnabled,
     )
     const starInlineMode = sourceFlags.hasStar
     const percentInlineMode = sourceFlags.hasPercent
@@ -1790,6 +1792,67 @@ const convertStarCommentInlineSegment = (segment, deleteMode, token) => {
 
 const createRuntimePlan = createSharedRuntimePlan
 
+const isExactFigureReferenceLabel = (value) => {
+  const match = parseFigureReferenceLabelAt(value, 0)
+  return !!(match && match.end === value.length)
+}
+
+const findAdjacentNonemptyToken = (children, start, step) => {
+  for (let i = start; i >= 0 && i < children.length; i += step) {
+    const token = children[i]
+    if (!token || token.hidden || (token.type === 'text' && !token.content)) continue
+    return token
+  }
+  return null
+}
+
+const convertManualFigureReferences = (children, className, strongTag, emphasisTag) => {
+  for (let i = 0; i + 2 < children.length; i++) {
+    const open = children[i]
+    const content = children[i + 1]
+    const close = children[i + 2]
+    if (!open || open.hidden || !close || close.hidden) continue
+
+    let outputTag = ''
+    if (
+      open.type === 'strong_open' && open.nesting === 1 && open.markup === '**'
+      && close.type === 'strong_close' && close.nesting === -1 && close.markup === '**'
+    ) {
+      outputTag = strongTag
+    } else if (
+      open.type === 'em_open' && open.nesting === 1 && open.markup === '*'
+      && close.type === 'em_close' && close.nesting === -1 && close.markup === '*'
+    ) {
+      outputTag = emphasisTag
+    } else {
+      continue
+    }
+    if (
+      !content || content.hidden || content.type !== 'text'
+      || typeof content.content !== 'string'
+      || (content.meta && content.meta.__insideRawHtmlInline)
+      || !isExactFigureReferenceLabel(content.content)
+    ) {
+      continue
+    }
+    const previous = findAdjacentNonemptyToken(children, i - 1, -1)
+    const next = findAdjacentNonemptyToken(children, i + 3, 1)
+    if (
+      (previous && previous.nesting === 1 && (previous.markup === '*' || previous.markup === '**'))
+      || (next && next.nesting === -1 && (next.markup === '*' || next.markup === '**'))
+    ) {
+      continue
+    }
+
+    open.type = 'figure_reference_open'
+    open.tag = outputTag
+    open.attrJoin('class', className)
+    close.type = 'figure_reference_close'
+    close.tag = outputTag
+    i += 2
+  }
+}
+
 const compileInlineTokenRunner = (profile) => {
   const htmlEnabled = profile.htmlEnabled
   const rubyEnabled = profile.rubyEnabled
@@ -1804,6 +1867,12 @@ const compileInlineTokenRunner = (profile) => {
   const percentParagraphClassEnabled = profile.percentParagraphClassEnabled
   const percentDeleteEnabled = profile.percentDeleteEnabled
   const percentClass = profile.percentClass || DEFAULT_PERCENT_CLASS
+  const figureReferenceManualEnabled = profile.figureReferenceManualEnabled
+  const figureReferenceTag = profile.figureReferenceTag
+  const figureReferenceManualTagFromMarker = profile.figureReferenceManualTagFromMarker
+  const figureReferenceClass = profile.figureReferenceClass
+  const figureReferenceManualStrongTag = figureReferenceManualTagFromMarker ? 'b' : figureReferenceTag
+  const figureReferenceManualEmphasisTag = figureReferenceManualTagFromMarker ? 'i' : figureReferenceTag
   const shouldNormalizeEscapes = starEnabled || percentEnabled
 
   return (state) => {
@@ -1819,10 +1888,21 @@ const compileInlineTokenRunner = (profile) => {
       let blockHasStar = starEnabled && blockContent.indexOf(STAR_CHAR) !== -1
       let blockHasPercent = percentEnabled && blockContent.indexOf(PERCENT_MARKER) !== -1
       let blockHasRuby = rubyEnabled && blockContent.indexOf(RUBY_MARK_CHAR) !== -1
-      if (!blockHasStar && !blockHasPercent && !blockHasRuby && !blockContent) {
+      let blockHasManualFigureReference = figureReferenceManualEnabled
+        && blockContent.indexOf('*') !== -1
+        && hasFigureReferenceLabelCandidate(blockContent)
+      if (!blockHasStar && !blockHasPercent && !blockHasRuby && !blockHasManualFigureReference && !blockContent) {
         for (let j = 0; j < blockToken.children.length; j++) {
           const token = blockToken.children[j]
-          if (!token || token.type !== 'text' || typeof token.content !== 'string') continue
+          if (!token) continue
+          if (
+            !blockHasManualFigureReference
+            && (token.type === 'strong_open' || token.type === 'em_open')
+            && (token.markup === '**' || token.markup === '*')
+          ) {
+            blockHasManualFigureReference = true
+          }
+          if (token.type !== 'text' || typeof token.content !== 'string') continue
           if (!blockHasStar && token.content.indexOf(STAR_CHAR) !== -1) blockHasStar = true
           if (!blockHasPercent && token.content.indexOf(PERCENT_MARKER) !== -1) blockHasPercent = true
           if (!blockHasRuby && token.content.indexOf(RUBY_MARK_CHAR) !== -1) blockHasRuby = true
@@ -1830,12 +1910,13 @@ const compileInlineTokenRunner = (profile) => {
             (!starEnabled || blockHasStar)
             && (!percentEnabled || blockHasPercent)
             && (!rubyEnabled || blockHasRuby)
+            && (!figureReferenceManualEnabled || blockHasManualFigureReference)
           ) {
             break
           }
         }
       }
-      if (!blockHasStar && !blockHasPercent && !blockHasRuby) {
+      if (!blockHasStar && !blockHasPercent && !blockHasRuby && !blockHasManualFigureReference) {
         continue
       }
       const children = blockToken.children
@@ -1870,6 +1951,15 @@ const compileInlineTokenRunner = (profile) => {
           markPercentLine,
           percentDeleteEnabled,
         )
+      }
+      if (blockHasManualFigureReference) {
+        convertManualFigureReferences(
+          children,
+          figureReferenceClass,
+          figureReferenceManualStrongTag,
+          figureReferenceManualEmphasisTag,
+        )
+        if (!blockHasStar && !blockHasPercent && !blockHasRuby) continue
       }
 
       const wrapStarParagraphInline = isStarParagraph && !starParagraphClassEnabled
@@ -2035,6 +2125,10 @@ const getCompiledInlineTokenRunner = (runnerCache, runtime, htmlEnabled, percent
     percentParagraphClassEnabled: runtime.percentParagraphClassEnabled,
     percentDeleteEnabled: runtime.percentDeleteEnabled,
     percentClass,
+    figureReferenceManualEnabled: runtime.figureReferenceManualEnabled,
+    figureReferenceTag: runtime.figureReferenceTag,
+    figureReferenceManualTagFromMarker: runtime.figureReferenceManualTagFromMarker,
+    figureReferenceClass: runtime.figureReferenceClass,
   })
   runnerCache[key] = runner
   return runner
@@ -2076,13 +2170,14 @@ function rendererInlineText (md, option = {}) {
   const percentLineEnabled = runtime.percentLineEnabled
   const percentParagraphClass = runtime.percentParagraphClass
   const percentParagraphClassEnabled = runtime.percentParagraphClassEnabled
-  const figureReferenceEnabled = runtime.figureReferenceEnabled
+  const figureReferenceAutoEnabled = runtime.figureReferenceAutoEnabled
+  const figureReferenceManualEnabled = runtime.figureReferenceManualEnabled
   const anyEnabled = runtime.anyEnabled
   const markerEnabled = starEnabled || percentEnabled
   const inlinePreparseEnabled = runtime.starInlineEnabled
     || runtime.percentInlineEnabled
-    || figureReferenceEnabled
-  const coreTransformEnabled = rubyEnabled || markerEnabled
+    || figureReferenceAutoEnabled
+  const coreTransformEnabled = rubyEnabled || markerEnabled || figureReferenceManualEnabled
   const percentClass = opt.percentClassEscaped || DEFAULT_PERCENT_CLASS
   const needsParagraphSupport = !!(
     (starParagraphEnabled && starDeleteEnabled)

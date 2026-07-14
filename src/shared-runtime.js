@@ -84,15 +84,15 @@ export const hasFigureReferenceCandidate = (text) => {
   return false
 }
 
-export const parseFigureReferenceAt = (text, start, max) => {
+export const hasFigureReferenceLabelCandidate = (text) => {
+  return typeof text === 'string'
+    && (text.indexOf('図') !== -1 || text.indexOf('Fig') !== -1)
+}
+
+export const parseFigureReferenceLabelAt = (text, start, max) => {
   if (typeof text !== 'string' || start < 0 || start >= text.length) return null
   const limit = Math.min(text.length, Number.isInteger(max) ? max : text.length)
-  const openCode = text.charCodeAt(start)
-  const closeCode = openCode === 40 ? 41 : (openCode === 0xFF08 ? 0xFF09 : -1)
-  if (closeCode === -1 || start + 3 >= limit) return null
-
-  const contentStart = start + 1
-  let pos = contentStart
+  let pos = start
   if (text.charCodeAt(pos) === 0x56F3) { // 図
     pos++
   } else {
@@ -124,6 +124,20 @@ export const parseFigureReferenceAt = (text, start, max) => {
     pos = consumeFigureReferenceComponent(text, pos + 1, limit)
     if (pos === -1) return null
   }
+  return { start, end: pos }
+}
+
+export const parseFigureReferenceAt = (text, start, max) => {
+  if (typeof text !== 'string' || start < 0 || start >= text.length) return null
+  const limit = Math.min(text.length, Number.isInteger(max) ? max : text.length)
+  const openCode = text.charCodeAt(start)
+  const closeCode = openCode === 40 ? 41 : (openCode === 0xFF08 ? 0xFF09 : -1)
+  if (closeCode === -1 || start + 3 >= limit) return null
+
+  const contentStart = start + 1
+  const label = parseFigureReferenceLabelAt(text, contentStart, limit)
+  if (!label) return null
+  const pos = label.end
   if (pos >= limit || text.charCodeAt(pos) !== closeCode) return null
   return {
     start,
@@ -215,6 +229,8 @@ export const lineStartsWithPercent = (line) => {
 
 export const normalizeOptions = (option = {}) => {
   const rawOption = option && typeof option === 'object' ? option : {}
+  const hasFigureReferenceAuto = Object.prototype.hasOwnProperty.call(rawOption, 'figureReferenceAuto')
+  const hasFigureReferenceManual = Object.prototype.hasOwnProperty.call(rawOption, 'figureReferenceManual')
   const opt = {
     ruby: false,
     starComment: false,
@@ -229,7 +245,10 @@ export const normalizeOptions = (option = {}) => {
     percentCommentParagraphClass: false,
     percentClass: DEFAULT_PERCENT_CLASS,
     figureReference: false,
+    figureReferenceAuto: false,
+    figureReferenceManual: false,
     figureReferenceTag: DEFAULT_FIGURE_REFERENCE_TAG,
+    figureReferenceManualTagFromMarker: false,
     figureReferenceClass: DEFAULT_FIGURE_REFERENCE_CLASS,
     ...rawOption,
   }
@@ -245,8 +264,12 @@ export const normalizeOptions = (option = {}) => {
   opt.percentClass = normalizeClassString(opt.percentClass, DEFAULT_PERCENT_CLASS)
   opt.starCommentParagraphClass = normalizeParagraphClass(opt.starCommentParagraphClass, DEFAULT_STAR_CLASS)
   opt.percentCommentParagraphClass = normalizeParagraphClass(opt.percentCommentParagraphClass, opt.percentClass)
-  opt.figureReference = !!opt.figureReference
+  const figureReferenceDefault = !!opt.figureReference
+  opt.figureReferenceAuto = !!(hasFigureReferenceAuto ? opt.figureReferenceAuto : figureReferenceDefault)
+  opt.figureReferenceManual = !!(hasFigureReferenceManual ? opt.figureReferenceManual : figureReferenceDefault)
+  opt.figureReference = figureReferenceDefault
   opt.figureReferenceTag = normalizeFigureReferenceTag(opt.figureReferenceTag)
+  opt.figureReferenceManualTagFromMarker = !!opt.figureReferenceManualTagFromMarker
   opt.figureReferenceClass = normalizeClassString(opt.figureReferenceClass, DEFAULT_FIGURE_REFERENCE_CLASS)
   opt.__isNormalized = true
   Object.defineProperty(opt, NORMALIZED_OPTIONS, { value: true })
@@ -273,10 +296,13 @@ export const createRuntimePlan = (option = {}) => {
   const percentInlineEnabled = !!(percentEnabled && !percentParagraphEnabled && !percentLineEnabled)
   const percentParagraphClass = percentParagraphEnabled ? (opt.percentCommentParagraphClass || '') : ''
   const percentParagraphClassEnabled = !!percentParagraphClass
-  const figureReferenceEnabled = !!opt.figureReference
+  const figureReferenceAutoEnabled = !!opt.figureReferenceAuto
+  const figureReferenceManualEnabled = !!opt.figureReferenceManual
   const figureReferenceTag = opt.figureReferenceTag
+  const figureReferenceManualTagFromMarker = !!opt.figureReferenceManualTagFromMarker
   const figureReferenceClass = opt.figureReferenceClass
-  const anyEnabled = rubyEnabled || starEnabled || percentEnabled || figureReferenceEnabled
+  const anyEnabled = rubyEnabled || starEnabled || percentEnabled
+    || figureReferenceAutoEnabled || figureReferenceManualEnabled
   const inlineProfileMask = (rubyEnabled ? 1 : 0)
     | (starEnabled ? 2 : 0)
     | (starDeleteEnabled ? 4 : 0)
@@ -288,7 +314,8 @@ export const createRuntimePlan = (option = {}) => {
     | (percentLineEnabled ? 256 : 0)
     | (starParagraphClassEnabled ? 512 : 0)
     | (percentParagraphClassEnabled ? 1024 : 0)
-    | (figureReferenceEnabled ? 2048 : 0)
+    | (figureReferenceAutoEnabled ? 2048 : 0)
+    | (figureReferenceManualEnabled ? 4096 : 0)
   return {
     rubyEnabled,
     starEnabled,
@@ -305,8 +332,10 @@ export const createRuntimePlan = (option = {}) => {
     percentInlineEnabled,
     percentParagraphClass,
     percentParagraphClassEnabled,
-    figureReferenceEnabled,
+    figureReferenceAutoEnabled,
+    figureReferenceManualEnabled,
     figureReferenceTag,
+    figureReferenceManualTagFromMarker,
     figureReferenceClass,
     anyEnabled,
     inlineProfileMask,

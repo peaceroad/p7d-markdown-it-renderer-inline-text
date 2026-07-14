@@ -27,6 +27,7 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
       percentCommentParagraphClass: '  ',
       figureReference: true,
       figureReferenceTag: ' B ',
+      figureReferenceManualTagFromMarker: true,
       figureReferenceClass: ' figure-number ',
     })
     assert.strictEqual(normalized.starCommentParagraph, false)
@@ -34,7 +35,10 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
     assert.strictEqual(normalized.percentClass, 'note')
     assert.strictEqual(normalized.percentCommentParagraphClass, 'note')
     assert.strictEqual(normalized.figureReference, true)
+    assert.strictEqual(normalized.figureReferenceAuto, true)
+    assert.strictEqual(normalized.figureReferenceManual, true)
     assert.strictEqual(normalized.figureReferenceTag, 'b')
+    assert.strictEqual(normalized.figureReferenceManualTagFromMarker, true)
     assert.strictEqual(normalized.figureReferenceClass, 'figure-number')
   }
 
@@ -46,14 +50,41 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
       percentComment: true,
       percentCommentLine: true,
       ruby: true,
-      figureReference: true,
+      figureReferenceAuto: true,
+      figureReferenceManual: true,
     })
     assert.strictEqual(runtime.starInlineEnabled, true)
     assert.strictEqual(runtime.percentInlineEnabled, false)
     assert.strictEqual(runtime.rubyEnabled, true)
-    assert.strictEqual(runtime.figureReferenceEnabled, true)
+    assert.strictEqual(runtime.figureReferenceAutoEnabled, true)
+    assert.strictEqual(runtime.figureReferenceManualEnabled, true)
     assert.strictEqual(runtime.figureReferenceTag, 'span')
+    assert.strictEqual(runtime.figureReferenceManualTagFromMarker, false)
     assert.strictEqual(runtime.figureReferenceClass, 'f-ref')
+  }
+
+  {
+    const manualOnly = normalizeOptions({
+      figureReference: true,
+      figureReferenceAuto: false,
+    })
+    assert.strictEqual(manualOnly.figureReference, true)
+    assert.strictEqual(manualOnly.figureReferenceAuto, false)
+    assert.strictEqual(manualOnly.figureReferenceManual, true)
+
+    const autoOnly = normalizeOptions({
+      figureReference: true,
+      figureReferenceManual: false,
+    })
+    assert.strictEqual(autoOnly.figureReference, true)
+    assert.strictEqual(autoOnly.figureReferenceAuto, true)
+    assert.strictEqual(autoOnly.figureReferenceManual, false)
+
+    const bothExplicit = normalizeOptions({
+      figureReferenceAuto: true,
+      figureReferenceManual: true,
+    })
+    assert.strictEqual(bothExplicit.figureReference, false)
   }
 
   {
@@ -139,6 +170,27 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
       ),
       [],
     )
+  }
+
+  {
+    const runtime = createRuntimePlan({ figureReferenceManual: true })
+    assert.deepStrictEqual(
+      scanInlineRanges(
+        '前 **図1** *Figure.A.1* ★**図2**★ %%*Fig. 3*%% **図a** ***図1***',
+        createRuntimePlan({
+          figureReferenceManual: true,
+          starComment: true,
+          percentComment: true,
+        }),
+      ).map((range) => [range.type, range.text]),
+      [
+        ['figure-reference', '**図1**'],
+        ['figure-reference', '*Figure.A.1*'],
+        ['star', '★**図2**★'],
+        ['percent', '%%*Fig. 3*%%'],
+      ],
+    )
+    assert.deepStrictEqual(scanInlineRanges('（図1） **図1**', runtime).map((range) => range.text), ['**図1**'])
   }
 
   {
@@ -295,10 +347,15 @@ export const runAnalyzerAssertions = ({ mdit, mdRendererInlineText }) => {
 
   {
     const runtimeWithoutFigure = createRuntimePlan({ ruby: true })
-    const runtimeWithFigure = createRuntimePlan({ ruby: true, figureReference: true })
+    const runtimeWithFigure = createRuntimePlan({ ruby: true, figureReferenceAuto: true })
+    const runtimeWithManualFigure = createRuntimePlan({ ruby: true, figureReferenceManual: true })
     assert.notStrictEqual(
       runtimeWithoutFigure.inlineProfileMask,
       runtimeWithFigure.inlineProfileMask,
+    )
+    assert.notStrictEqual(
+      runtimeWithFigure.inlineProfileMask,
+      runtimeWithManualFigure.inlineProfileMask,
     )
     const first = analyzeLines(['（図A.1）'], runtimeWithFigure)
     const next = analyzeLines(['（図A.1）'], runtimeWithoutFigure, first.state)

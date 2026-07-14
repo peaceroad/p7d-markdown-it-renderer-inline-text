@@ -1,6 +1,6 @@
 import assert from 'assert'
 
-export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlineText }) => {
+export const runOptionAssertions = ({ mdit, cjkBreaks, figureWithPCaption, strongJa, mdRendererInlineText }) => {
   // Rules installed before markdown-it's escape rule must preserve hardbreak semantics.
   {
     const src = 'A\\  \nB'
@@ -62,6 +62,185 @@ export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlin
         assert.strictEqual(md.renderInline(src), expected, `${html}:${src}`)
       }
     }
+  }
+
+  // Automatic and manual figure-reference modes are independent and composable.
+  {
+    const source = '（図1）（**図1**） **Figure 1** *Fig. A-1* **通常**'
+    assert.strictEqual(
+      mdit().use(mdRendererInlineText, { figureReferenceAuto: true }).renderInline(source),
+      '（<span class="f-ref">図1</span>）（<strong>図1</strong>）'
+        + ' <strong>Figure 1</strong> <em>Fig. A-1</em> <strong>通常</strong>',
+    )
+    assert.strictEqual(
+      mdit().use(mdRendererInlineText, { figureReferenceManual: true }).renderInline(source),
+      '（図1）（<span class="f-ref">図1</span>）'
+        + ' <span class="f-ref">Figure 1</span> <span class="f-ref">Fig. A-1</span> <strong>通常</strong>',
+    )
+    assert.strictEqual(
+      mdit().use(mdRendererInlineText, {
+        figureReferenceAuto: true,
+        figureReferenceManual: true,
+      }).renderInline(source),
+      '（<span class="f-ref">図1</span>）（<span class="f-ref">図1</span>）'
+        + ' <span class="f-ref">Figure 1</span> <span class="f-ref">Fig. A-1</span> <strong>通常</strong>',
+    )
+    assert.strictEqual(
+      mdit().use(mdRendererInlineText, { figureReference: true }).renderInline(source),
+      '（<span class="f-ref">図1</span>）（<span class="f-ref">図1</span>）'
+        + ' <span class="f-ref">Figure 1</span> <span class="f-ref">Fig. A-1</span> <strong>通常</strong>',
+    )
+  }
+
+  // The figureReference shorthand enables both modes; explicit mode options win independently.
+  {
+    assert.strictEqual(
+      mdit().use(mdRendererInlineText, {
+        figureReference: true,
+        figureReferenceAuto: false,
+      }).renderInline('（図1） **図1**'),
+      '（図1） <span class="f-ref">図1</span>',
+    )
+    assert.strictEqual(
+      mdit().use(mdRendererInlineText, {
+        figureReference: true,
+        figureReferenceManual: false,
+      }).renderInline('（図1） **図1**'),
+      '（<span class="f-ref">図1</span>） <strong>図1</strong>',
+    )
+  }
+
+  // Manual mode consumes only exact asterisk-marked references and uses the configured tag.
+  {
+    const md = mdit().use(mdRendererInlineText, { figureReferenceManual: true })
+    assert.strictEqual(
+      md.renderInline('**図Ａ-１** *Figure.A.1* [**Fig. 1**](#fig-1)'),
+      '<span class="f-ref">図Ａ-１</span> <span class="f-ref">Figure.A.1</span>'
+        + ' <a href="#fig-1"><span class="f-ref">Fig. 1</span></a>',
+    )
+    assert.strictEqual(
+      md.renderInline('**図a** ** 図1 ** ***図1*** _図1_ `**図1**`'),
+      '<strong>図a</strong> ** 図1 ** <em><strong>図1</strong></em>'
+        + ' <em>図1</em> <code>**図1**</code>',
+    )
+    const children = md.parseInline('**図1** *Figure A*', {})[0].children
+    assert.deepStrictEqual(
+      children.filter((token) => token.type.startsWith('figure_reference')).map((token) => ({
+        type: token.type,
+        tag: token.tag,
+        nesting: token.nesting,
+        markup: token.markup,
+        attrs: token.attrs,
+      })),
+      [
+        {
+          type: 'figure_reference_open',
+          tag: 'span',
+          nesting: 1,
+          markup: '**',
+          attrs: [['class', 'f-ref']],
+        },
+        {
+          type: 'figure_reference_close',
+          tag: 'span',
+          nesting: -1,
+          markup: '**',
+          attrs: null,
+        },
+        {
+          type: 'figure_reference_open',
+          tag: 'span',
+          nesting: 1,
+          markup: '*',
+          attrs: [['class', 'f-ref']],
+        },
+        {
+          type: 'figure_reference_close',
+          tag: 'span',
+          nesting: -1,
+          markup: '*',
+          attrs: null,
+        },
+      ],
+    )
+    assert.strictEqual(
+      mdit({ html: true }).use(mdRendererInlineText, { figureReferenceManual: true }).renderInline('**図1**'),
+      '<span class="f-ref">図1</span>',
+    )
+    assert.strictEqual(
+      mdit({ html: true }).use(mdRendererInlineText, { figureReferenceManual: true })
+        .renderInline('<script>**Figure 1**</script>'),
+      '<script><strong>Figure 1</strong></script>',
+    )
+    assert.strictEqual(
+      mdit({ html: false }).use(mdRendererInlineText, { figureReferenceManual: true })
+        .renderInline('<script>**Figure 1**</script>'),
+      '&lt;script&gt;<span class="f-ref">Figure 1</span>&lt;/script&gt;',
+    )
+    assert.strictEqual(
+      mdit('commonmark').use(mdRendererInlineText, { figureReferenceManual: true }).renderInline('**図1**'),
+      '<span class="f-ref">図1</span>',
+    )
+    assert.strictEqual(
+      mdit('zero').use(mdRendererInlineText, { figureReferenceManual: true }).renderInline('**図1**'),
+      '**図1**',
+    )
+
+    const annotateStrong = (instance) => {
+      instance.core.ruler.after('inline', 'annotate_strong_for_figure_reference_test', (state) => {
+        const open = state.tokens[0] && state.tokens[0].children
+          ? state.tokens[0].children.find((token) => token.type === 'strong_open')
+          : null
+        if (!open) return
+        open.attrSet('class', 'existing')
+        open.meta = { thirdParty: true }
+      })
+    }
+    const annotated = mdit()
+      .use(mdRendererInlineText, { figureReferenceManual: true })
+      .use(annotateStrong)
+      .parseInline('**図1**', {})[0].children.find((token) => token.type === 'figure_reference_open')
+    assert.strictEqual(annotated.attrGet('class'), 'existing f-ref')
+    assert.deepStrictEqual(annotated.meta, { thirdParty: true })
+
+    const markerTags = mdit().use(mdRendererInlineText, {
+      figureReferenceManual: true,
+      figureReferenceManualTagFromMarker: true,
+    })
+    assert.strictEqual(
+      markerTags.renderInline('**図1** *Figure A*'),
+      '<b class="f-ref">図1</b> <i class="f-ref">Figure A</i>',
+    )
+  }
+
+  // Caption detection owns plain caption labels before manual reference retagging runs.
+  {
+    const source = '図1　A caption. **図2**\n\n![cat](figure.jpg)\n\n本文で **図1** を参照。'
+    const expected = '<figure class="f-img">\n'
+      + '<figcaption><span class="f-img-label">図1<span class="f-img-label-joint">　</span></span>'
+      + 'A caption. <span class="f-ref">図2</span></figcaption>\n'
+      + '<img src="figure.jpg" alt="cat">\n'
+      + '</figure>\n'
+      + '<p>本文で <span class="f-ref">図1</span> を参照。</p>\n'
+    const option = { figureReferenceAuto: true, figureReferenceManual: true }
+    const inlineFirst = mdit().use(mdRendererInlineText, option).use(figureWithPCaption)
+    const figureFirst = mdit().use(figureWithPCaption).use(mdRendererInlineText, option)
+    assert.strictEqual(inlineFirst.render(source), expected)
+    assert.strictEqual(figureFirst.render(source), expected)
+
+    const boldCaption = mdit()
+      .use(mdRendererInlineText, option)
+      .use(figureWithPCaption, { bLabel: true })
+      .render('図1　A caption.\n\n![cat](figure.jpg)')
+    assert.ok(boldCaption.includes('<b class="f-img-label">図1'))
+    assert.ok(!boldCaption.includes('class="f-ref"'))
+
+    const strongCaption = mdit()
+      .use(figureWithPCaption, { strongLabel: true })
+      .use(mdRendererInlineText, option)
+      .render('Figure 1. A caption.\n\n![cat](figure.jpg)')
+    assert.ok(strongCaption.includes('<strong class="f-img-label">Figure 1'))
+    assert.ok(!strongCaption.includes('class="f-ref"'))
   }
 
   // Figure references work in list text and preserve surrounding whitespace.
@@ -130,6 +309,10 @@ export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlin
       mdBold.renderInline('（図A）'),
       '（<b class="figure-number">図A</b>）',
     )
+    assert.strictEqual(
+      mdBold.renderInline('**図A** *Fig. 1*'),
+      '<b class="figure-number">図A</b> <b class="figure-number">Fig. 1</b>',
+    )
 
     const mdItalic = mdit().use(mdRendererInlineText, {
       figureReference: true,
@@ -139,6 +322,14 @@ export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlin
     assert.strictEqual(
       mdItalic.renderInline('(Figure 1)'),
       '(<i class="x&quot; onclick=&quot;a&amp;b">Figure 1</i>)',
+    )
+    assert.strictEqual(
+      mdit().use(mdRendererInlineText, {
+        figureReferenceManual: true,
+        figureReferenceTag: 'i',
+        figureReferenceClass: 'x" onclick="a&b',
+      }).renderInline('**図1**'),
+      '<i class="x&quot; onclick=&quot;a&amp;b">図1</i>',
     )
 
     assert.throws(
@@ -439,6 +630,18 @@ export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlin
       mdStrongJaLast.render('**（図A.1）**'),
       '<p><strong>（<span class="f-ref">図A.1</span>）</strong></p>\n',
     )
+
+    const manualOption = { figureReferenceManual: true }
+    const manualStrongFirst = mdit().use(strongJa).use(mdRendererInlineText, manualOption)
+    const manualStrongLast = mdit().use(mdRendererInlineText, manualOption).use(strongJa)
+    assert.strictEqual(manualStrongFirst.renderInline('**図1** *Figure A*'), '<span class="f-ref">図1</span> <span class="f-ref">Figure A</span>')
+    assert.strictEqual(manualStrongLast.renderInline('**図1** *Figure A*'), '<span class="f-ref">図1</span> <span class="f-ref">Figure A</span>')
+
+    const markerOption = { figureReferenceManual: true, figureReferenceManualTagFromMarker: true }
+    const markerStrongFirst = mdit().use(strongJa).use(mdRendererInlineText, markerOption)
+    const markerStrongLast = mdit().use(mdRendererInlineText, markerOption).use(strongJa)
+    assert.strictEqual(markerStrongFirst.renderInline('**図1** *Figure A*'), '<b class="f-ref">図1</b> <i class="f-ref">Figure A</i>')
+    assert.strictEqual(markerStrongLast.renderInline('**図1** *Figure A*'), '<b class="f-ref">図1</b> <i class="f-ref">Figure A</i>')
   }
 
   // The core order guard supports cjk-breaks on either side of this plugin.
@@ -808,7 +1011,7 @@ export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlin
     )
 
     const mdFigureOnly = mdit().use(mdRendererInlineText, {
-      figureReference: true,
+      figureReferenceAuto: true,
     })
     assert.strictEqual(
       mdFigureOnly.inline.ruler.__rules__.filter((rule) => rule.name === 'star_percent_comment_preparse').length,
@@ -821,6 +1024,30 @@ export const runOptionAssertions = ({ mdit, cjkBreaks, strongJa, mdRendererInlin
     assert.strictEqual(
       mdFigureOnly.core.ruler.__rules__.filter((rule) => rule.name === 'inline_ruler_convert').length,
       0,
+    )
+
+    const mdManualFigureOnly = mdit().use(mdRendererInlineText, {
+      figureReferenceManual: true,
+    })
+    assert.strictEqual(
+      mdManualFigureOnly.inline.ruler.__rules__.filter((rule) => rule.name === 'star_percent_comment_preparse').length,
+      0,
+    )
+    assert.strictEqual(
+      mdManualFigureOnly.core.ruler.__rules__.filter((rule) => rule.name === 'inline_ruler_convert').length,
+      1,
+    )
+
+    const mdFigureBoth = mdit().use(mdRendererInlineText, {
+      figureReference: true,
+    })
+    assert.strictEqual(
+      mdFigureBoth.inline.ruler.__rules__.filter((rule) => rule.name === 'star_percent_comment_preparse').length,
+      1,
+    )
+    assert.strictEqual(
+      mdFigureBoth.core.ruler.__rules__.filter((rule) => rule.name === 'inline_ruler_convert').length,
+      1,
     )
   }
 

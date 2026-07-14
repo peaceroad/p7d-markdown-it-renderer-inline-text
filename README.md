@@ -5,7 +5,7 @@ Inline text transform plugin for markdown-it.
 It adds:
 
 - Ruby conversion (`漢字《かんじ》`)
-- Figure-reference decoration (`（図1）`, `(Figure A)`, `(Fig. 1)`)
+- Automatic and explicit figure-reference decoration (`（図1）`, `**Figure A**`, `*Fig. 1*`)
 - Star comments (`★...★`)
 - Percent comments (`%%...%%`)
 
@@ -34,6 +34,9 @@ console.log(md.render('昼食は親子丼《おやこどん》です。'))
 
 console.log(md.render('詳細は（図A.1）を参照してください。'))
 // <p>詳細は（<span class="f-ref">図A.1</span>）を参照してください。</p>
+
+console.log(md.render('詳細は **図A.1** を参照してください。'))
+// <p>詳細は <span class="f-ref">図A.1</span> を参照してください。</p>
 ```
 
 ## Ruby Syntax
@@ -72,9 +75,17 @@ Output:<p>案内文：<ruby>寿司<rp>《</rp><rt>すし</rt><rp>》</rp></ruby>
 
 ## Figure Reference Syntax
 
-Enable `figureReference` to decorate the label and identifier inside a paired
-ASCII or fullwidth parenthesis. The parentheses and surrounding whitespace are
-preserved.
+`figureReference: true` enables both authoring styles. Use the two mode-specific
+options when only one style is wanted or when overriding one side of the
+shorthand:
+
+- `figureReferenceAuto`: automatically decorate a recognized label and
+  identifier inside paired ASCII or fullwidth parentheses. The parentheses and
+  surrounding whitespace are preserved.
+- `figureReferenceManual`: treat an exact recognized reference wrapped in
+  `**...**` or `*...*` as an explicit reference marker. Both use the configured
+  figure-reference tag instead of emitting `<strong>` or `<em>` because the
+  wrapper is a presentation hook rather than author emphasis.
 
 ```md
 Input: 詳細は（図1）と（図A.1）を参照してください。
@@ -85,6 +96,12 @@ Output: <p>See (<span class="f-ref">Figure 1-1</span>) and (<span class="f-ref">
 
 Input: See (Fig. 1), (Fig.A-1), and (Figure.A.1).
 Output: <p>See (<span class="f-ref">Fig. 1</span>), (<span class="f-ref">Fig.A-1</span>), and (<span class="f-ref">Figure.A.1</span>).</p>
+
+Input: 詳細は（**図1**）と **図A.1** を参照してください。
+Output: <p>詳細は（<span class="f-ref">図1</span>）と <span class="f-ref">図A.1</span> を参照してください。</p>
+
+Input: See *Figure A* and *Fig. 1*.
+Output: <p>See <span class="f-ref">Figure A</span> and <span class="f-ref">Fig. 1</span>.</p>
 ```
 
 Recognized forms:
@@ -106,9 +123,27 @@ Examples include `図1`, `図１`, `図A`, `図Ａ`, `図1.1`, `図A.1`, `図1-1
 such as `figure` / `fig` and all-uppercase `FIG` are not recognized. Fullwidth
 separators such as `．`, `－`, and `：` are intentionally not recognized.
 
-The default tag is `<span class="f-ref">`. Use `figureReferenceTag` to
-select `span`, `b`, or `i`, and `figureReferenceClass` to change the class.
+Both modes default to `<span class="f-ref">`. Use `figureReferenceTag` to select
+`span`, `b`, or `i` for both. Set `figureReferenceManualTagFromMarker: true`
+when manual `**...**` should use `b` and manual `*...*` should use `i` instead.
+Use `figureReferenceClass` to change the class in both modes.
 The plugin emits the class hook but does not bundle a stylesheet for it.
+
+```js
+md.use(mditRendererInlineText, {
+  figureReferenceManual: true,
+  figureReferenceManualTagFromMarker: true,
+})
+// **図1** -> <b class="f-ref">図1</b>
+// *図1*   -> <i class="f-ref">図1</i>
+```
+
+Manual mode accepts only an exact recognized reference inside one asterisk
+delimiter pair. It intentionally leaves `_図1_`, `***図1***`, `** 図1 **`, and
+ordinary emphasis such as `**重要**` to markdown-it.
+It reuses markdown-it's parsed emphasis tokens; if a preset disables the
+`emphasis` inline rule (for example the unmodified `zero` preset), manual mode
+has no delimiter tokens to retag and leaves the source unchanged.
 Inline/fenced code and link destinations are not rewritten. With `html:true`,
 raw HTML and its attributes are also left unchanged. With `html:false`,
 HTML-looking source is ordinary text, so a reference inside it can be
@@ -116,6 +151,25 @@ decorated while markdown-it escapes the tag-like text. An odd backslash run
 before either opening parenthesis prevents conversion. Markdown-it removes the
 escaping backslash from `\(Figure 1)`; a backslash before fullwidth `（` remains
 literal because it is not standard Markdown ASCII punctuation.
+
+### Compatibility with `@peaceroad/markdown-it-figure-with-p-caption`
+
+Caption detection runs before this plugin's manual core transform, so plain
+caption labels such as `図1　Caption` and `Figure 1. Caption` remain owned by the
+figure plugin. This is stable in either `.use(...)` order. Caption labels
+generated as `<span>`, `<b>`, or `<strong>` by that plugin are not retagged;
+explicit references in caption body text can still use the manual syntax.
+
+Do not use `**図1**` as the leading caption label. The figure plugin does not
+recognize an emphasis token as a caption label even without this plugin. Use a
+plain source label and its `bLabel: true` option when the rendered caption label
+should use `<b>`.
+
+The classes intentionally remain role-specific: `f-img-label` identifies a
+label in a caption, while `f-ref` identifies a reference in body text. When
+they need the same appearance, group the selectors in CSS (for example,
+`:where(.f-img-label, .f-ref)`) rather than making the DOM roles share one
+class name.
 
 ## ★ / %% Comment Syntax
 
@@ -234,13 +288,22 @@ Output: <p class="star-comment">★本日は売り切れ次第終了です。</p
   Enable ruby conversion.
 
 - `figureReference` (default: `false`)
-  Decorate recognized `図...`, `Figure...`, and `Fig...` references inside paired parentheses.
+  Enable both automatic and manual figure-reference conversion. It supplies the default for each mode-specific option.
+
+- `figureReferenceAuto` (default: value of `figureReference`)
+  Automatically decorate recognized `図...`, `Figure...`, and `Fig...` references inside paired parentheses. An explicit value overrides `figureReference` for this mode.
+
+- `figureReferenceManual` (default: value of `figureReference`)
+  Convert exact `**reference**` / `*reference*` author markers with the configured reference tag and class. An explicit value overrides `figureReference` for this mode.
 
 - `figureReferenceTag` (default: `"span"`)
-  Output tag for the decorated reference. Allowed values are `"span"`, `"b"`, and `"i"`.
+  Output tag for automatic and manual references. Allowed values are `"span"`, `"b"`, and `"i"`.
+
+- `figureReferenceManualTagFromMarker` (default: `false`)
+  In manual mode, derive the tag from the author marker instead of `figureReferenceTag`: `**reference**` uses `<b>` and `*reference*` uses `<i>`.
 
 - `figureReferenceClass` (default: `"f-ref"`)
-  CSS class for the decorated reference.
+  CSS class for automatic and manual references.
 
 - `starComment` (default: `false`)
   Enable `★...★` comments.
@@ -282,6 +345,8 @@ Notes:
 - Star and percent line modes can be enabled together; mixed ★/%% lines are classified independently, including delete mode.
 - `percentClass` is escaped via `md.utils.escapeHtml`.
 - `figureReferenceTag` is validated at setup time; token attribute rendering escapes `figureReferenceClass`.
+- `figureReferenceManualTagFromMarker` affects only the manual output tag; range recognition is unchanged.
+- `figureReference: true` enables both modes; explicit `figureReferenceAuto` / `figureReferenceManual` values override the shorthand independently.
 
 ## Analyzer API (Experimental)
 
@@ -320,11 +385,12 @@ Guaranteed parity scope:
 - inline marker pairing in inline mode (`starInlineEnabled` / `percentInlineEnabled`)
 - line-start checks (`starCommentLine` / `percentCommentLine`)
 - ruby shorthand range detection outside inline marker-wrapped ranges
-- figure-reference range detection outside inline marker-wrapped ranges
+- automatic/manual figure-reference range detection outside inline marker-wrapped ranges
 
-With `figureReference`, matching ranges use `type: "figure-reference"` and
-cover the full parenthesized source range. Rendering still wraps only the inner
-label and identifier.
+With `figureReferenceAuto`, matching ranges use `type: "figure-reference"` and
+cover the full parenthesized source range. With `figureReferenceManual`, they
+cover the full asterisk-marked range. Rendering wraps only the recognized label
+and identifier in either mode.
 
 Out of scope for strict parity:
 
